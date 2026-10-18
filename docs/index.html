@@ -40,10 +40,21 @@
     </form>
   </div>
   <div id="online"></div>
-  <div id="status"></div>
+  <div id="status" style="z-index:3"></div>
   <form id="chat"><input id="msg" placeholder="Digite sua mensagem..." enterkeyhint="send" maxlength="120" autocomplete="off"></form>
   <canvas id="tela"></canvas>
-  <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+  <script>
+    // Mostra qualquer erro na tela para facilitar o suporte pelo celular.
+    function mostrarErro(msg) {
+      const el = document.getElementById('status');
+      el.style.display = 'block';
+      el.style.color = '#ff8a8a';
+      el.textContent = 'Erro: ' + msg;
+    }
+    addEventListener('error', (e) => mostrarErro(e.message || (e.target && e.target.src) || 'desconhecido'), true);
+    addEventListener('unhandledrejection', (e) => mostrarErro(e.reason && e.reason.message || String(e.reason)));
+  </script>
+  <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js" onerror="mostrarErro('não carregou a biblioteca MQTT')"></script>
   <script src="rede.js"></script>
   <script src="game.js"></script>
 </body>
