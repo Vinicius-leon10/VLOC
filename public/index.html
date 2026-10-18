@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VLOC Hotel</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1d2a; font-family: system-ui, sans-serif; color: #fff; }
+    canvas { display: block; width: 100vw; height: 100vh; cursor: pointer; touch-action: none; }
+    #login { position: fixed; inset: 0; display: grid; place-items: center; background: #1b1d2a; z-index: 2; }
+    #login form { background: #2a2d40; padding: 28px; border-radius: 12px; width: min(320px, calc(100vw - 32px)); display: grid; gap: 12px; }
+    #login h1 { margin: 0 0 4px; font-size: 22px; text-align: center; }
+    input, button { font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid #444866; background: #1b1d2a; color: #fff; }
+    input[type=color] { padding: 2px; height: 42px; width: 100%; }
+    button { background: #e94560; border: none; font-weight: 600; cursor: pointer; }
+    #erro { color: #ff8a8a; min-height: 1.2em; font-size: 14px; text-align: center; }
+    #chat { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(480px, calc(100vw - 32px)); display: none; }
+    #chat input { width: 100%; background: rgba(27, 29, 42, .9); }
+    #online { position: fixed; top: 12px; left: 12px; background: rgba(42, 45, 64, .85); padding: 8px 12px; border-radius: 8px; font-size: 14px; display: none; }
+  </style>
+</head>
+<body>
+  <div id="login">
+    <form id="loginForm">
+      <h1>🏨 VLOC Hotel</h1>
+      <input id="nome" placeholder="Seu nome" maxlength="16" required autofocus>
+      <input id="senha" type="password" placeholder="Senha da sala" required>
+      <label style="font-size:14px">Cor do avatar <input id="cor" type="color" value="#e94560"></label>
+      <button>Entrar</button>
+      <div id="erro"></div>
+    </form>
+  </div>
+  <div id="online"></div>
+  <form id="chat"><input id="msg" placeholder="Digite e aperte Enter..." maxlength="120" autocomplete="off"></form>
+  <canvas id="tela"></canvas>
+  <script src="game.js"></script>
+</body>
+</html>
