@@ -22,9 +22,9 @@
     input { -webkit-user-select: text; user-select: text; }
     input[type=color] { padding: 2px; height: 42px; width: 100%; }
     button { background: #e94560; border: none; font-weight: 600; cursor: pointer; }
-    #erro { color: #ff8a8a; min-height: 1.2em; font-size: 14px; text-align: center; }
     #chat { position: fixed; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(480px, calc(100vw - 32px)); display: none; }
     #chat input { width: 100%; background: rgba(27, 29, 42, .9); }
+    #status { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(42, 45, 64, .9); padding: 10px 16px; border-radius: 8px; display: none; z-index: 1; }
     #online { position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 8px; right: 8px; width: fit-content; max-width: calc(100vw - 16px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: rgba(42, 45, 64, .85); padding: 8px 12px; border-radius: 8px; font-size: 13px; display: none; }
   </style>
 </head>
@@ -34,14 +34,17 @@
       <h1>🏨 VLOC Hotel</h1>
       <input id="nome" placeholder="Seu nome" maxlength="16" required autofocus>
       <input id="senha" type="password" placeholder="Senha da sala" required>
+      <small style="color:#aab">Quem usar a mesma senha entra na mesma sala.</small>
       <label style="font-size:14px">Cor do avatar <input id="cor" type="color" value="#e94560"></label>
       <button>Entrar</button>
-      <div id="erro"></div>
     </form>
   </div>
   <div id="online"></div>
+  <div id="status"></div>
   <form id="chat"><input id="msg" placeholder="Digite sua mensagem..." enterkeyhint="send" maxlength="120" autocomplete="off"></form>
   <canvas id="tela"></canvas>
+  <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+  <script src="rede.js"></script>
   <script src="game.js"></script>
 </body>
 </html>

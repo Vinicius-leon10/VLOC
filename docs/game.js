@@ -1,14 +1,14 @@
-// Cliente: desenha a sala isométrica, os avatares e os balões de chat.
+// Jogo: desenha a sala isométrica, os avatares e os balões de chat.
 const canvas = document.getElementById('tela');
 const ctx = canvas.getContext('2d');
 const TILE_W = 64;
 const TILE_H = 32;
 const WALL_H = 110;
 
-let ws;
-let myId = null;
-let room = null;
-const players = new Map(); // id -> { name, color, x, y, drawX, drawY }
+let sala = null; // conexão da rede (rede.js)
+const myId = Math.random().toString(36).slice(2, 10);
+let me = null;
+const players = new Map(); // id -> { name, color, x, y, path, drawX, drawY, seen }
 let origin = { x: 0, y: 0 };
 let scale = 1;
 let hover = null;
@@ -19,67 +19,170 @@ let chatLines = []; // { x, name, color, text, row }
 let chatTop = 40;
 let lastScroll = 0;
 
-// ---------- Conexão ----------
-document.getElementById('loginForm').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${protocol}://${location.host}`);
-  ws.onopen = () => ws.send(JSON.stringify({
-    type: 'join',
-    name: document.getElementById('nome').value,
-    password: document.getElementById('senha').value,
-    color: document.getElementById('cor').value,
-  }));
-  ws.onmessage = (ev) => handle(JSON.parse(ev.data));
-  ws.onclose = () => {
-    if (myId) alert('Conexão perdida. Recarregue a página.');
-  };
-});
+// ---------- Sala ----------
+const TICK_MS = 280;
+const HEARTBEAT_MS = 5000;
+const TIMEOUT_MS = 16000;
+const room = {
+  w: 10,
+  h: 10,
+  furniture: [
+    { type: 'sofa', x: 1, y: 0 },
+    { type: 'sofa', x: 2, y: 0 },
+    { type: 'table', x: 5, y: 4 },
+    { type: 'plant', x: 9, y: 0 },
+    { type: 'plant', x: 0, y: 9 },
+    { type: 'lamp', x: 9, y: 9 },
+  ],
+};
+const blocked = new Set(room.furniture.map((f) => `${f.x},${f.y}`));
 
-function addPlayer(p) {
-  players.set(p.id, { ...p, drawX: p.x, drawY: p.y });
+function isFree(x, y) {
+  return Number.isInteger(x) && Number.isInteger(y) && x >= 0 && y >= 0 && x < room.w && y < room.h && !blocked.has(`${x},${y}`);
+}
+
+// Busca em largura com 8 direções; retorna os passos sem incluir a origem.
+function findPath(from, to) {
+  if (!isFree(to.x, to.y)) return [];
+  const key = (p) => `${p.x},${p.y}`;
+  const prev = new Map([[key(from), null]]);
+  const queue = [from];
+  while (queue.length) {
+    const cur = queue.shift();
+    if (cur.x === to.x && cur.y === to.y) break;
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        if (!dx && !dy) continue;
+        const next = { x: cur.x + dx, y: cur.y + dy };
+        if (!isFree(next.x, next.y) || prev.has(key(next))) continue;
+        // Não corta quinas de móveis na diagonal.
+        if (dx && dy && (!isFree(cur.x + dx, cur.y) || !isFree(cur.x, cur.y + dy))) continue;
+        prev.set(key(next), cur);
+        queue.push(next);
+      }
+    }
+  }
+  if (!prev.has(key(to))) return [];
+  const steps = [];
+  for (let p = to; p && key(p) !== key(from); p = prev.get(key(p))) steps.unshift({ x: p.x, y: p.y });
+  return steps;
+}
+
+// Avança cada jogador um quadrado por tick (todos os navegadores fazem a mesma conta).
+setInterval(() => {
+  for (const p of players.values()) {
+    const step = p.path.shift();
+    if (step) Object.assign(p, step);
+  }
+}, TICK_MS);
+
+// ---------- Rede ----------
+function myState() {
+  return { name: me.name, color: me.color, x: me.x, y: me.y, path: me.path };
+}
+
+// Dados vindos de outros jogadores: valida antes de usar.
+function upsertPlayer(id, d) {
+  if (typeof id !== 'string' || id.length > 20) return null;
+  const pos = isFree(d.x, d.y) ? { x: d.x, y: d.y } : { x: 4, y: 8 };
+  const path = Array.isArray(d.path) ? d.path.slice(0, 40).filter((s) => isFree(s?.x, s?.y)).map((s) => ({ x: s.x, y: s.y })) : [];
+  let p = players.get(id);
+  if (!p) {
+    p = { id, drawX: pos.x, drawY: pos.y };
+    players.set(id, p);
+  }
+  Object.assign(p, {
+    name: String(d.name || 'Visitante').slice(0, 16),
+    color: /^#[0-9a-f]{6}$/i.test(d.color) ? d.color : '#888888',
+    ...pos,
+    path,
+    seen: Date.now(),
+  });
+  updateOnline();
+  return p;
 }
 
 function handle(msg) {
   switch (msg.type) {
-    case 'error':
-      document.getElementById('erro').textContent = msg.message;
-      ws.close();
+    case 'hello':
+      upsertPlayer(msg.id, msg);
+      // Responde com um atraso aleatório para não chegarem todas juntas.
+      setTimeout(() => sala.enviar({ type: 'state', ...myState() }), 100 + Math.random() * 500);
       break;
-    case 'welcome':
-      myId = msg.you;
-      room = msg.room;
-      resize();
-      msg.players.forEach(addPlayer);
-      document.getElementById('login').style.display = 'none';
-      document.getElementById('chat').style.display = 'block';
-      document.getElementById('online').style.display = 'block';
-      updateOnline();
-      break;
-    case 'joined':
-      if (!players.has(msg.player.id)) addPlayer(msg.player);
-      updateOnline();
-      break;
-    case 'left':
-      players.delete(msg.id);
-      updateOnline();
-      break;
-    case 'moves':
-      for (const m of msg.moves) {
-        const p = players.get(m.id);
-        if (p) Object.assign(p, { x: m.x, y: m.y });
-      }
+    case 'state':
+    case 'move':
+      upsertPlayer(msg.id, msg);
       break;
     case 'chat': {
       const p = players.get(msg.id);
-      if (!p) break;
+      const text = String(msg.text || '').trim().slice(0, 120);
+      if (!p || !text) break;
+      p.seen = Date.now();
       chatLines.forEach((l) => l.row++);
-      chatLines.push({ x: toScreen(p.drawX, p.drawY).x, name: p.name, color: p.color, text: msg.text, row: 0 });
+      chatLines.push({ x: toScreen(p.drawX, p.drawY).x, name: p.name, color: p.color, text, row: 0 });
       lastScroll = performance.now();
       break;
     }
+    case 'bye':
+      players.delete(msg.id);
+      updateOnline();
+      break;
   }
 }
+
+function setStatus(online) {
+  const el = document.getElementById('status');
+  el.textContent = online ? '' : 'Conectando...';
+  el.style.display = online ? 'none' : 'block';
+}
+
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('nome').value.trim().slice(0, 16) || 'Visitante';
+  const color = document.getElementById('cor').value;
+  const senha = document.getElementById('senha').value;
+  try {
+    localStorage.setItem('vloc', JSON.stringify({ name, color, senha }));
+  } catch {}
+  // Nasce num quadrado livre perto da porta.
+  const x = 2 + Math.floor(Math.random() * 6);
+  const y = 7 + Math.floor(Math.random() * 3);
+  me = { id: myId, name, color, x, y, path: [], drawX: x, drawY: y, seen: Infinity };
+  players.set(myId, me);
+
+  document.getElementById('login').style.display = 'none';
+  document.getElementById('chat').style.display = 'block';
+  document.getElementById('online').style.display = 'block';
+  updateOnline();
+  resize();
+  setStatus(false);
+
+  let saudou = false;
+  sala = await conectarSala(senha, myId, handle, (online) => {
+    setStatus(online);
+    if (online && !saudou) {
+      saudou = true;
+      sala.enviar({ type: 'hello', ...myState() });
+    }
+  });
+  setInterval(() => {
+    sala.enviar({ type: 'state', ...myState() });
+    const limite = Date.now() - TIMEOUT_MS;
+    for (const [id, p] of players) if (p.seen < limite) players.delete(id);
+    updateOnline();
+  }, HEARTBEAT_MS);
+  addEventListener('pagehide', () => sala.sair());
+});
+
+// Lembra nome, cor e senha neste aparelho.
+try {
+  const salvo = JSON.parse(localStorage.getItem('vloc') || 'null');
+  if (salvo) {
+    document.getElementById('nome').value = salvo.name;
+    document.getElementById('cor').value = salvo.color;
+    document.getElementById('senha').value = salvo.senha;
+  }
+} catch {}
 
 function updateOnline() {
   const names = [...players.values()].map((p) => p.name).join(', ');
@@ -89,8 +192,11 @@ function updateOnline() {
 document.getElementById('chat').addEventListener('submit', (e) => {
   e.preventDefault();
   const input = document.getElementById('msg');
-  if (input.value.trim()) ws.send(JSON.stringify({ type: 'chat', text: input.value }));
+  const text = input.value.trim().slice(0, 120);
   input.value = '';
+  if (!text || !sala) return;
+  sala.enviar({ type: 'chat', text });
+  handle({ type: 'chat', id: myId, text });
 });
 
 // ---------- Coordenadas ----------
@@ -120,7 +226,9 @@ canvas.addEventListener('pointermove', (e) => {
 
 canvas.addEventListener('pointerdown', (e) => {
   const t = pointerTile(e);
-  if (inRoom(t) && ws?.readyState === 1) ws.send(JSON.stringify({ type: 'move', x: t.x, y: t.y }));
+  if (!me || !inRoom(t)) return;
+  me.path = findPath({ x: me.x, y: me.y }, t);
+  sala?.enviar({ type: 'move', ...myState() });
 });
 
 // Ajusta o zoom para a sala inteira caber na tela (inclusive no celular).
