@@ -8,14 +8,14 @@ const WALL_H = 110;
 let sala = null; // conexão da rede (rede.js)
 const myId = Math.random().toString(36).slice(2, 10);
 let me = null;
-const players = new Map(); // id -> { name, color, x, y, path, drawX, drawY, seen }
+const players = new Map(); // id -> { name, color, hair, x, y, path, acao, drawX, drawY, seen }
 let origin = { x: 0, y: 0 };
 let scale = 1;
 let hover = null;
 // Chat no estilo Habbo: balões sobem juntos pela tela a cada mensagem.
 const CHAT_ROW_H = 26;
 const CHAT_SCROLL_MS = 4000;
-let chatLines = []; // { x, name, color, text, row }
+let chatLines = []; // { x, name, color, hair, text, row }
 let chatTop = 40;
 let lastScroll = 0;
 
@@ -27,15 +27,22 @@ const room = {
   w: 10,
   h: 10,
   furniture: [
-    { type: 'sofa', x: 1, y: 0 },
-    { type: 'sofa', x: 2, y: 0 },
+    { type: 'rug', x: 4, y: 3, w: 3, h: 3 }, // decoração, não bloqueia
+    { type: 'sofa', x: 1, y: 0, w: 2 },
+    { type: 'shelf', x: 7, y: 0 },
     { type: 'table', x: 5, y: 4 },
+    { type: 'stool', x: 4, y: 4 },
+    { type: 'stool', x: 6, y: 4 },
     { type: 'plant', x: 9, y: 0 },
     { type: 'plant', x: 0, y: 9 },
     { type: 'lamp', x: 9, y: 9 },
   ],
 };
-const blocked = new Set(room.furniture.map((f) => `${f.x},${f.y}`));
+const blocked = new Set();
+for (const f of room.furniture) {
+  if (f.type === 'rug') continue;
+  for (let i = 0; i < (f.w || 1); i++) blocked.add(`${f.x + i},${f.y}`);
+}
 
 function isFree(x, y) {
   return Number.isInteger(x) && Number.isInteger(y) && x >= 0 && y >= 0 && x < room.w && y < room.h && !blocked.has(`${x},${y}`);
@@ -72,13 +79,19 @@ function findPath(from, to) {
 setInterval(() => {
   for (const p of players.values()) {
     const step = p.path.shift();
-    if (step) Object.assign(p, step);
+    if (!step) continue;
+    // Direção na tela: x-y é horizontal (direita +), x+y é vertical (frente +).
+    const h = step.x - p.x - (step.y - p.y);
+    const v = step.x - p.x + (step.y - p.y);
+    if (h) p.right = h > 0;
+    if (v) p.front = v > 0;
+    Object.assign(p, step);
   }
 }, TICK_MS);
 
 // ---------- Rede ----------
 function myState() {
-  return { name: me.name, color: me.color, x: me.x, y: me.y, path: me.path };
+  return { name: me.name, color: me.color, hair: me.hair, x: me.x, y: me.y, path: me.path, acao: me.acao };
 }
 
 // Dados vindos de outros jogadores: valida antes de usar.
@@ -88,16 +101,20 @@ function upsertPlayer(id, d) {
   const path = Array.isArray(d.path) ? d.path.slice(0, 40).filter((s) => isFree(s?.x, s?.y)).map((s) => ({ x: s.x, y: s.y })) : [];
   let p = players.get(id);
   if (!p) {
-    p = { id, drawX: pos.x, drawY: pos.y };
+    p = { id, drawX: pos.x, drawY: pos.y, front: true, right: false, fase: Math.random() * 5000 };
     players.set(id, p);
   }
   Object.assign(p, {
     name: String(d.name || 'Visitante').slice(0, 16),
     color: /^#[0-9a-f]{6}$/i.test(d.color) ? d.color : '#888888',
+    hair: /^#[0-9a-f]{6}$/i.test(d.hair) ? d.hair : '#4a2f1d',
     ...pos,
     path,
     seen: Date.now(),
   });
+  // Dançar continua até a pessoa parar; acenar chega só pela mensagem 'acao'.
+  if (d.acao === 'dancar') p.acao = 'dancar';
+  else if (p.acao === 'dancar') p.acao = null;
   updateOnline();
   return p;
 }
@@ -113,13 +130,18 @@ function handle(msg) {
     case 'move':
       upsertPlayer(msg.id, msg);
       break;
+    case 'acao': {
+      const p = players.get(msg.id);
+      if (p) setAcao(p, msg.acao);
+      break;
+    }
     case 'chat': {
       const p = players.get(msg.id);
       const text = String(msg.text || '').trim().slice(0, 120);
       if (!p || !text) break;
       p.seen = Date.now();
       chatLines.forEach((l) => l.row++);
-      chatLines.push({ x: toScreen(p.drawX, p.drawY).x, name: p.name, color: p.color, text, row: 0 });
+      chatLines.push({ x: toScreen(p.drawX, p.drawY).x, name: p.name, color: p.color, hair: p.hair, text, row: 0 });
       lastScroll = performance.now();
       break;
     }
@@ -140,19 +162,20 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const name = document.getElementById('nome').value.trim().slice(0, 16) || 'Visitante';
   const color = document.getElementById('cor').value;
+  const hair = document.getElementById('cabelo').value;
   const senha = document.getElementById('senha').value;
   try {
-    localStorage.setItem('vloc', JSON.stringify({ name, color, senha }));
+    localStorage.setItem('vloc', JSON.stringify({ name, color, hair, senha }));
   } catch {}
   // Nasce num quadrado livre perto da porta.
   const x = 2 + Math.floor(Math.random() * 6);
   const y = 7 + Math.floor(Math.random() * 3);
-  me = { id: myId, name, color, x, y, path: [], drawX: x, drawY: y, seen: Infinity };
+  me = { id: myId, name, color, hair, x, y, path: [], acao: null, drawX: x, drawY: y, front: true, right: false, fase: 0, seen: Infinity };
   players.set(myId, me);
 
   document.getElementById('login').style.display = 'none';
-  document.getElementById('chat').style.display = 'block';
-  document.getElementById('online').style.display = 'block';
+  document.getElementById('chat').style.display = 'flex';
+  document.getElementById('online').style.display = 'flex';
   updateOnline();
   resize();
   setStatus(false);
@@ -180,13 +203,15 @@ try {
   if (salvo) {
     document.getElementById('nome').value = salvo.name;
     document.getElementById('cor').value = salvo.color;
+    if (salvo.hair) document.getElementById('cabelo').value = salvo.hair;
     document.getElementById('senha').value = salvo.senha;
   }
 } catch {}
 
 function updateOnline() {
   const names = [...players.values()].map((p) => p.name).join(', ');
-  document.getElementById('online').textContent = `🟢 ${players.size} online: ${names}`;
+  document.getElementById('online-n').textContent = players.size;
+  document.getElementById('online-nomes').textContent = names;
 }
 
 document.getElementById('chat').addEventListener('submit', (e) => {
@@ -228,6 +253,7 @@ canvas.addEventListener('pointerdown', (e) => {
   const t = pointerTile(e);
   if (!me || !inRoom(t)) return;
   me.path = findPath({ x: me.x, y: me.y }, t);
+  me.acao = null;
   sala?.enviar({ type: 'move', ...myState() });
 });
 
@@ -250,241 +276,43 @@ function resize() {
 }
 addEventListener('resize', resize);
 
-// ---------- Desenho ----------
-function diamond(x, y, fill, stroke) {
-  const s = toScreen(x, y);
-  ctx.beginPath();
-  ctx.moveTo(s.x, s.y - TILE_H / 2);
-  ctx.lineTo(s.x + TILE_W / 2, s.y);
-  ctx.lineTo(s.x, s.y + TILE_H / 2);
-  ctx.lineTo(s.x - TILE_W / 2, s.y);
-  ctx.closePath();
-  ctx.fillStyle = fill;
-  ctx.fill();
-  if (stroke) {
-    ctx.strokeStyle = stroke;
-    ctx.stroke();
-  }
+// ---------- Ações (acenar e dançar) ----------
+function setAcao(p, acao) {
+  p.acao = acao === 'acenar' || acao === 'dancar' ? acao : null;
+  p.acaoAte = performance.now() + 2500;
 }
 
-function drawWalls() {
-  const top = toScreen(-0.5, -0.5);
-  const left = toScreen(-0.5, room.h - 0.5);
-  const right = toScreen(room.w - 0.5, -0.5);
-  // Parede esquerda
-  ctx.fillStyle = '#b9a88c';
-  ctx.beginPath();
-  ctx.moveTo(left.x, left.y);
-  ctx.lineTo(top.x, top.y);
-  ctx.lineTo(top.x, top.y - WALL_H);
-  ctx.lineTo(left.x, left.y - WALL_H);
-  ctx.fill();
-  // Parede direita
-  ctx.fillStyle = '#d4c4a8';
-  ctx.beginPath();
-  ctx.moveTo(top.x, top.y);
-  ctx.lineTo(right.x, right.y);
-  ctx.lineTo(right.x, right.y - WALL_H);
-  ctx.lineTo(top.x, top.y - WALL_H);
-  ctx.fill();
-  // Janela na parede direita
-  const w1 = toScreen(3.5, -0.5);
-  const w2 = toScreen(6.5, -0.5);
-  ctx.fillStyle = '#8fd3ff';
-  ctx.beginPath();
-  ctx.moveTo(w1.x, w1.y - 30);
-  ctx.lineTo(w2.x, w2.y - 30);
-  ctx.lineTo(w2.x, w2.y - 85);
-  ctx.lineTo(w1.x, w1.y - 85);
-  ctx.fill();
+for (const btn of document.querySelectorAll('[data-acao]')) {
+  btn.addEventListener('click', () => {
+    if (!me) return;
+    // Tocar de novo em dançar faz parar.
+    const acao = btn.dataset.acao === 'dancar' && me.acao === 'dancar' ? null : btn.dataset.acao;
+    setAcao(me, acao);
+    sala?.enviar({ type: 'acao', acao });
+  });
 }
 
-function drawFloor() {
-  for (let y = 0; y < room.h; y++) {
-    for (let x = 0; x < room.w; x++) {
-      diamond(x, y, (x + y) % 2 ? '#8a6f4e' : '#957a58', 'rgba(0,0,0,.15)');
-    }
-  }
-  if (hover) diamond(hover.x, hover.y, 'rgba(255,255,255,.25)', '#fff');
-}
-
-function box(sx, sy, w, h, height, top, left, right) {
-  // Caixa isométrica centrada em (sx, sy) no chão.
-  const hw = w / 2;
-  const hh = h / 2;
-  ctx.fillStyle = left;
-  ctx.beginPath();
-  ctx.moveTo(sx - hw, sy);
-  ctx.lineTo(sx, sy + hh);
-  ctx.lineTo(sx, sy + hh - height);
-  ctx.lineTo(sx - hw, sy - height);
-  ctx.fill();
-  ctx.fillStyle = right;
-  ctx.beginPath();
-  ctx.moveTo(sx + hw, sy);
-  ctx.lineTo(sx, sy + hh);
-  ctx.lineTo(sx, sy + hh - height);
-  ctx.lineTo(sx + hw, sy - height);
-  ctx.fill();
-  ctx.fillStyle = top;
-  ctx.beginPath();
-  ctx.moveTo(sx, sy - hh - height);
-  ctx.lineTo(sx + hw, sy - height);
-  ctx.lineTo(sx, sy + hh - height);
-  ctx.lineTo(sx - hw, sy - height);
-  ctx.fill();
-}
-
-function drawFurniture(f) {
-  const s = toScreen(f.x, f.y);
-  if (f.type === 'sofa') {
-    box(s.x, s.y, 52, 26, 14, '#e05a5a', '#a83a3a', '#c44848');
-    box(s.x - 6, s.y - 3, 40, 20, 32, '#e05a5a', '#a83a3a', '#c44848');
-  } else if (f.type === 'table') {
-    box(s.x, s.y, 12, 6, 22, '#5a3d24', '#4a3020', '#5a3d24');
-    box(s.x, s.y - 22, 56, 28, 5, '#c9935a', '#8a5f34', '#a87444');
-  } else if (f.type === 'plant') {
-    box(s.x, s.y, 26, 13, 16, '#d07a3a', '#a0582a', '#b86630');
-    ctx.fillStyle = '#3fae5a';
-    for (const [dx, dy, r] of [[0, -34, 14], [-9, -26, 10], [9, -26, 10], [0, -46, 9]]) {
-      ctx.beginPath();
-      ctx.arc(s.x + dx, s.y + dy, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  } else if (f.type === 'lamp') {
-    box(s.x, s.y, 20, 10, 4, '#555', '#333', '#444');
-    ctx.fillStyle = '#666';
-    ctx.fillRect(s.x - 2, s.y - 50, 4, 48);
-    ctx.fillStyle = '#ffe28a';
-    ctx.beginPath();
-    ctx.moveTo(s.x - 14, s.y - 48);
-    ctx.lineTo(s.x + 14, s.y - 48);
-    ctx.lineTo(s.x + 8, s.y - 68);
-    ctx.lineTo(s.x - 8, s.y - 68);
-    ctx.fill();
-  }
-}
-
-function shade(hex, amt) {
-  const n = parseInt(hex.slice(1), 16);
-  const c = (v) => Math.max(0, Math.min(255, v + amt));
-  return `rgb(${c(n >> 16)},${c((n >> 8) & 255)},${c(n & 255)})`;
-}
-
-function drawPlayer(p, now) {
-  const s = toScreen(p.drawX, p.drawY);
-  const walking = Math.abs(p.drawX - p.x) + Math.abs(p.drawY - p.y) > 0.02;
-  const bob = walking ? Math.sin(now / 70) * 2 : 0;
-  // Sombra
-  ctx.fillStyle = 'rgba(0,0,0,.25)';
-  ctx.beginPath();
-  ctx.ellipse(s.x, s.y, 14, 7, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // Pernas
-  ctx.fillStyle = '#2d3a5a';
-  ctx.fillRect(s.x - 7, s.y - 18 + bob, 6, 16);
-  ctx.fillRect(s.x + 1, s.y - 18 - bob, 6, 16);
-  // Corpo
-  ctx.fillStyle = p.color;
-  ctx.beginPath();
-  ctx.roundRect(s.x - 10, s.y - 42, 20, 26, 6);
-  ctx.fill();
-  ctx.fillStyle = shade(p.color, -40);
-  ctx.fillRect(s.x - 14, s.y - 40, 4, 16);
-  ctx.fillRect(s.x + 10, s.y - 40, 4, 16);
-  // Cabeça
-  ctx.fillStyle = '#f2c9a0';
-  ctx.beginPath();
-  ctx.arc(s.x, s.y - 52, 11, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#4a2f1d';
-  ctx.beginPath();
-  ctx.arc(s.x, s.y - 55, 11, Math.PI, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#222';
-  ctx.fillRect(s.x - 5, s.y - 52, 3, 3);
-  ctx.fillRect(s.x + 2, s.y - 52, 3, 3);
-  // Nome
-  ctx.font = `bold ${textPx(12)}px system-ui`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const tw = ctx.measureText(p.name).width + 10;
-  const th = textPx(17);
-  ctx.fillStyle = p.id === myId ? 'rgba(233,69,96,.9)' : 'rgba(0,0,0,.6)';
-  ctx.beginPath();
-  ctx.roundRect(s.x - tw / 2, s.y - 74 - th, tw, th, th / 2);
-  ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.fillText(p.name, s.x, s.y - 74 - th / 2);
-  ctx.textBaseline = 'alphabetic';
-}
-
-// Tamanho de texto que continua legível quando a sala é reduzida no celular.
-function textPx(px) {
-  return px / Math.max(scale, 0.7);
-}
-
-function drawChat(now) {
-  if (chatLines.length && now - lastScroll > CHAT_SCROLL_MS) {
-    chatLines.forEach((l) => l.row++);
-    lastScroll = now;
-  }
-  const rowH = textPx(CHAT_ROW_H);
-  const baseY = origin.y - WALL_H + rowH * 2;
-  chatLines = chatLines.filter((l) => baseY - l.row * rowH > chatTop);
-  const viewW = innerWidth / scale;
-  for (const l of chatLines) {
-    const y = baseY - l.row * rowH;
-    ctx.font = `bold ${textPx(13)}px system-ui`;
-    const nameW = ctx.measureText(`${l.name}: `).width;
-    ctx.font = `${textPx(13)}px system-ui`;
-    const w = nameW + ctx.measureText(l.text).width + textPx(30);
-    const x = Math.max(4, Math.min(viewW - w - 4, l.x - w / 2));
-    const h = rowH - textPx(4);
-    ctx.fillStyle = '#fff';
-    ctx.strokeStyle = '#1b1d2a';
-    ctx.lineWidth = 1.5 / scale;
-    ctx.beginPath();
-    ctx.roundRect(x, y - h / 2, w, h, h / 2);
-    ctx.fill();
-    ctx.stroke();
-    // Bolinha com a cor do avatar, como o rosto no balão do Habbo.
-    ctx.fillStyle = l.color;
-    ctx.beginPath();
-    ctx.arc(x + textPx(12), y, textPx(6), 0, Math.PI * 2);
-    ctx.fill();
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#1b1d2a';
-    ctx.font = `bold ${textPx(13)}px system-ui`;
-    ctx.fillText(`${l.name}: `, x + textPx(22), y);
-    ctx.font = `${textPx(13)}px system-ui`;
-    ctx.fillText(l.text, x + textPx(22) + nameW, y);
-    ctx.textBaseline = 'alphabetic';
-    ctx.lineWidth = 1;
-  }
-}
-
-function frame(now) {
-  ctx.clearRect(0, 0, innerWidth / scale, innerHeight / scale);
-  if (room) {
-    drawWalls();
-    drawFloor();
-    // Interpola posição para o movimento ficar suave.
-    for (const p of players.values()) {
-      p.drawX += (p.x - p.drawX) * 0.2;
-      p.drawY += (p.y - p.drawY) * 0.2;
-    }
-    // Ordena móveis e avatares por profundidade (x + y).
-    const items = [
-      ...room.furniture.map((f) => ({ depth: f.x + f.y, draw: () => drawFurniture(f) })),
-      ...[...players.values()].map((p) => ({ depth: p.drawX + p.drawY + 0.01, draw: () => drawPlayer(p, now) })),
-    ].sort((a, b) => a.depth - b.depth);
-    items.forEach((it) => it.draw());
-    drawChat(now);
-  }
-  requestAnimationFrame(frame);
+// Prévia do avatar na tela de entrada.
+function desenharPrevia() {
+  const c = document.getElementById('previa');
+  if (!c || !c.getContext) return;
+  const g = c.getContext('2d');
+  const dpr = devicePixelRatio || 1;
+  c.width = 84 * dpr;
+  c.height = 104 * dpr;
+  g.setTransform(dpr * 1.25, 0, 0, dpr * 1.25, 0, 0);
+  g.clearRect(0, 0, 84, 104);
+  drawAvatar(g, 33, 78, {
+    shirt: document.getElementById('cor').value,
+    hair: document.getElementById('cabelo').value,
+    front: true,
+    right: false,
+    acao: 'acenar',
+    t: performance.now(),
+  });
+  if (!me) requestAnimationFrame(desenharPrevia);
 }
 
 resize();
 requestAnimationFrame(frame);
+requestAnimationFrame(desenharPrevia);

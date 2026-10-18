@@ -4,7 +4,9 @@ Hotel isométrico pequeno, no estilo Habbo, para jogar com amigos no navegador
 do iPhone (ou de qualquer celular/computador). Roda direto no **GitHub Pages**,
 sem servidor próprio e de graça.
 
-- Toque no chão para andar (o boneco desvia dos móveis)
+- Toque no chão para andar (o boneco desvia dos móveis e vira para onde anda)
+- Escolha a cor da camiseta e do cabelo
+- 👋 Acenar e 💃 dançar, que todo mundo da sala vê
 - Chat com balões que sobem pela tela, como no Habbo
 - **A senha é a sala:** quem usa a mesma senha se encontra; o resto não vê nada
 - Pode ser adicionado à tela de início do iPhone como um app
@@ -40,7 +42,8 @@ animam o mesmo trajeto. Quem fecha a página sai da lista na hora (ou em até
 | Arquivo | O que faz |
 |---|---|
 | `index.html` | Login e ajustes para iPhone (tela cheia, ícone, teclado) |
-| `game.js` | Sala, caminho (BFS), desenho isométrico em Canvas, zoom para celular e chat |
+| `game.js` | Sala, caminho (BFS), jogadores, ações e zoom para celular |
+| `desenho.js` | Desenho isométrico em Canvas: paredes, piso, móveis, avatares e balões |
 | `rede.js` | Conexão com os retransmissores e criptografia pela senha |
 
 Para testar no computador: `python3 -m http.server -d docs 8000` e abra
