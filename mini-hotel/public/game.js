@@ -8,9 +8,16 @@ const WALL_H = 110;
 let ws;
 let myId = null;
 let room = null;
-const players = new Map(); // id -> { name, color, x, y, drawX, drawY, bubbles: [] }
+const players = new Map(); // id -> { name, color, x, y, drawX, drawY }
 let origin = { x: 0, y: 0 };
+let scale = 1;
 let hover = null;
+// Chat no estilo Habbo: balões sobem juntos pela tela a cada mensagem.
+const CHAT_ROW_H = 26;
+const CHAT_SCROLL_MS = 4000;
+let chatLines = []; // { x, name, color, text, row }
+let chatTop = 40;
+let lastScroll = 0;
 
 // ---------- Conexão ----------
 document.getElementById('loginForm').addEventListener('submit', (e) => {
@@ -30,7 +37,7 @@ document.getElementById('loginForm').addEventListener('submit', (e) => {
 });
 
 function addPlayer(p) {
-  players.set(p.id, { ...p, drawX: p.x, drawY: p.y, bubbles: [] });
+  players.set(p.id, { ...p, drawX: p.x, drawY: p.y });
 }
 
 function handle(msg) {
@@ -65,7 +72,10 @@ function handle(msg) {
       break;
     case 'chat': {
       const p = players.get(msg.id);
-      if (p) p.bubbles.push({ text: msg.text, born: performance.now() });
+      if (!p) break;
+      chatLines.forEach((l) => l.row++);
+      chatLines.push({ x: toScreen(p.drawX, p.drawY).x, name: p.name, color: p.color, text: msg.text, row: 0 });
+      lastScroll = performance.now();
       break;
     }
   }
@@ -100,7 +110,7 @@ function inRoom(t) {
 
 function pointerTile(e) {
   const r = canvas.getBoundingClientRect();
-  return toTile(e.clientX - r.left, e.clientY - r.top);
+  return toTile((e.clientX - r.left) / scale, (e.clientY - r.top) / scale);
 }
 
 canvas.addEventListener('pointermove', (e) => {
@@ -113,12 +123,22 @@ canvas.addEventListener('pointerdown', (e) => {
   if (inRoom(t) && ws?.readyState === 1) ws.send(JSON.stringify({ type: 'move', x: t.x, y: t.y }));
 });
 
+// Ajusta o zoom para a sala inteira caber na tela (inclusive no celular).
 function resize() {
   canvas.width = innerWidth * devicePixelRatio;
   canvas.height = innerHeight * devicePixelRatio;
-  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  const w = room ? room.w : 10;
   const h = room ? room.h : 10;
-  origin = { x: innerWidth / 2, y: Math.max(WALL_H + 20, innerHeight / 2 - (h * TILE_H) / 2) };
+  const roomW = ((w + h) * TILE_W) / 2;
+  const roomH = ((w + h) * TILE_H) / 2 + WALL_H + 30;
+  scale = Math.min(1.3, (innerWidth - 16) / roomW, (innerHeight - 70) / roomH);
+  ctx.setTransform(devicePixelRatio * scale, 0, 0, devicePixelRatio * scale, 0, 0);
+  // Centraliza a sala; (w - h) desloca quando ela não é quadrada.
+  origin = {
+    x: innerWidth / scale / 2 + ((h - w) * TILE_W) / 4,
+    y: (innerHeight / scale - 70 / scale - roomH) / 2 + WALL_H + 30,
+  };
+  chatTop = 40 / scale;
 }
 addEventListener('resize', resize);
 
@@ -277,41 +297,68 @@ function drawPlayer(p, now) {
   ctx.fillRect(s.x - 5, s.y - 52, 3, 3);
   ctx.fillRect(s.x + 2, s.y - 52, 3, 3);
   // Nome
-  ctx.font = 'bold 12px system-ui';
+  ctx.font = `bold ${textPx(12)}px system-ui`;
   ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
   const tw = ctx.measureText(p.name).width + 10;
+  const th = textPx(17);
   ctx.fillStyle = p.id === myId ? 'rgba(233,69,96,.9)' : 'rgba(0,0,0,.6)';
   ctx.beginPath();
-  ctx.roundRect(s.x - tw / 2, s.y - 82, tw, 17, 8);
+  ctx.roundRect(s.x - tw / 2, s.y - 74 - th, tw, th, th / 2);
   ctx.fill();
   ctx.fillStyle = '#fff';
-  ctx.fillText(p.name, s.x, s.y - 69);
+  ctx.fillText(p.name, s.x, s.y - 74 - th / 2);
+  ctx.textBaseline = 'alphabetic';
 }
 
-function drawBubbles(p, now) {
-  const s = toScreen(p.drawX, p.drawY);
-  p.bubbles = p.bubbles.filter((b) => now - b.born < 7000);
-  ctx.font = '13px system-ui';
-  ctx.textAlign = 'center';
-  p.bubbles.forEach((b, i) => {
-    const age = (now - b.born) / 7000;
-    const y = s.y - 100 - (p.bubbles.length - 1 - i) * 26 - age * 30;
-    const w = ctx.measureText(b.text).width + 16;
-    ctx.globalAlpha = age > 0.8 ? (1 - age) / 0.2 : 1;
+// Tamanho de texto que continua legível quando a sala é reduzida no celular.
+function textPx(px) {
+  return px / Math.max(scale, 0.7);
+}
+
+function drawChat(now) {
+  if (chatLines.length && now - lastScroll > CHAT_SCROLL_MS) {
+    chatLines.forEach((l) => l.row++);
+    lastScroll = now;
+  }
+  const rowH = textPx(CHAT_ROW_H);
+  const baseY = origin.y - WALL_H + rowH * 2;
+  chatLines = chatLines.filter((l) => baseY - l.row * rowH > chatTop);
+  const viewW = innerWidth / scale;
+  for (const l of chatLines) {
+    const y = baseY - l.row * rowH;
+    ctx.font = `bold ${textPx(13)}px system-ui`;
+    const nameW = ctx.measureText(`${l.name}: `).width;
+    ctx.font = `${textPx(13)}px system-ui`;
+    const w = nameW + ctx.measureText(l.text).width + textPx(30);
+    const x = Math.max(4, Math.min(viewW - w - 4, l.x - w / 2));
+    const h = rowH - textPx(4);
     ctx.fillStyle = '#fff';
-    ctx.strokeStyle = '#222';
+    ctx.strokeStyle = '#1b1d2a';
+    ctx.lineWidth = 1.5 / scale;
     ctx.beginPath();
-    ctx.roundRect(s.x - w / 2, y - 16, w, 22, 8);
+    ctx.roundRect(x, y - h / 2, w, h, h / 2);
     ctx.fill();
     ctx.stroke();
-    ctx.fillStyle = '#222';
-    ctx.fillText(b.text, s.x, y);
-    ctx.globalAlpha = 1;
-  });
+    // Bolinha com a cor do avatar, como o rosto no balão do Habbo.
+    ctx.fillStyle = l.color;
+    ctx.beginPath();
+    ctx.arc(x + textPx(12), y, textPx(6), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#1b1d2a';
+    ctx.font = `bold ${textPx(13)}px system-ui`;
+    ctx.fillText(`${l.name}: `, x + textPx(22), y);
+    ctx.font = `${textPx(13)}px system-ui`;
+    ctx.fillText(l.text, x + textPx(22) + nameW, y);
+    ctx.textBaseline = 'alphabetic';
+    ctx.lineWidth = 1;
+  }
 }
 
 function frame(now) {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.clearRect(0, 0, innerWidth / scale, innerHeight / scale);
   if (room) {
     drawWalls();
     drawFloor();
@@ -326,7 +373,7 @@ function frame(now) {
       ...[...players.values()].map((p) => ({ depth: p.drawX + p.drawY + 0.01, draw: () => drawPlayer(p, now) })),
     ].sort((a, b) => a.depth - b.depth);
     items.forEach((it) => it.draw());
-    players.forEach((p) => drawBubbles(p, now));
+    drawChat(now);
   }
   requestAnimationFrame(frame);
 }

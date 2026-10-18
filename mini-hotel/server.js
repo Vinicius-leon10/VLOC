@@ -25,7 +25,7 @@ const SPAWN = { x: 4, y: 8 };
 const players = new Map(); // id -> { id, name, color, x, y, path: [] }
 let nextId = 1;
 
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png' };
 
 const server = http.createServer((req, res) => {
   const url = req.url === '/' ? '/index.html' : req.url.split('?')[0];
