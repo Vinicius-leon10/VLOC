@@ -3,7 +3,7 @@ const canvas = document.getElementById('tela');
 const ctx = canvas.getContext('2d');
 const TILE_W = 64;
 const TILE_H = 32;
-const WALL_H = 110;
+const WALL_H = 128;
 
 let sala = null; // conexão da rede (rede.js)
 const myId = Math.random().toString(36).slice(2, 10);
@@ -298,11 +298,11 @@ function desenharPrevia() {
   if (!c || !c.getContext) return;
   const g = c.getContext('2d');
   const dpr = devicePixelRatio || 1;
-  c.width = 84 * dpr;
-  c.height = 104 * dpr;
-  g.setTransform(dpr * 1.25, 0, 0, dpr * 1.25, 0, 0);
-  g.clearRect(0, 0, 84, 104);
-  drawAvatar(g, 33, 78, {
+  c.width = 112 * dpr;
+  c.height = 136 * dpr;
+  g.setTransform(dpr * 1.6, 0, 0, dpr * 1.6, 0, 0);
+  g.clearRect(0, 0, 70, 85);
+  drawAvatar(g, 34, 78, {
     shirt: document.getElementById('cor').value,
     hair: document.getElementById('cabelo').value,
     front: true,

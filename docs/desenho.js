@@ -1,15 +1,22 @@
-// Desenho da sala, dos móveis, dos avatares e dos balões, no estilo do Habbo clássico.
+// Desenho da sala, dos móveis, dos avatares e dos balões.
 const FONTE = '"Ubuntu", system-ui, sans-serif';
-const CONTORNO = 'rgba(24, 18, 32, .55)';
-const PISO_ESPESSURA = 9;
+const CONTORNO = 'rgba(30, 20, 14, .45)';
+const PISO_ESPESSURA = 16;
 const PAREDE_ESPESSURA = 0.22; // em quadrados
-const PELE = '#f5cba7';
+const PELE = '#f3c6a0';
 
 // ---------- Utilitários ----------
-function shade(hex, amt) {
-  const n = parseInt(hex.slice(1), 16);
+// Clareia (amt > 0) ou escurece uma cor '#rrggbb' ou 'rgb(r,g,b)'.
+function shade(cor, amt) {
+  let r, g, b;
+  if (cor.startsWith('#')) {
+    const n = parseInt(cor.slice(1), 16);
+    [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255];
+  } else {
+    [r, g, b] = cor.match(/\d+/g).map(Number);
+  }
   const c = (v) => Math.max(0, Math.min(255, v + amt));
-  return `rgb(${c(n >> 16)},${c((n >> 8) & 255)},${c(n & 255)})`;
+  return `rgb(${c(r)},${c(g)},${c(b)})`;
 }
 
 function poly(pts, fill, stroke, c = ctx) {
@@ -41,24 +48,31 @@ function isoBox(x, y, ex, ey, z, h, cor, contorno = CONTORNO) {
   const B = (zz) => iso(x + ex, y - ey, zz);
   const C = (zz) => iso(x + ex, y + ey, zz);
   const D = (zz) => iso(x - ex, y + ey, zz);
-  poly([D(z), C(z), C(z + h), D(z + h)], shade(cor, -38), contorno);
-  poly([C(z), B(z), B(z + h), C(z + h)], shade(cor, -18), contorno);
+  poly([D(z), C(z), C(z + h), D(z + h)], shade(cor, -34), contorno);
+  poly([C(z), B(z), B(z + h), C(z + h)], shade(cor, -16), contorno);
   poly([A(z + h), B(z + h), C(z + h), D(z + h)], cor, contorno);
 }
 
-function hashCor(texto, cores) {
-  let h = 0;
-  for (const ch of texto) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return cores[h % cores.length];
+// Brilho suave e redondo (luz da luminária, reflexos no piso).
+function brilho(x, y, r, cor, achatado = 1) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(1, achatado);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+  g.addColorStop(0, cor);
+  g.addColorStop(1, cor.replace(/[\d.]+\)$/, '0)'));
+  ctx.fillStyle = g;
+  ctx.fillRect(-r, -r, r * 2, r * 2);
+  ctx.restore();
 }
 
 // ---------- Sala ----------
 function drawBackground() {
   const w = innerWidth / scale;
   const h = innerHeight / scale;
-  const g = ctx.createRadialGradient(w / 2, h * 0.4, 50, w / 2, h * 0.4, Math.max(w, h));
-  g.addColorStop(0, '#22304f');
-  g.addColorStop(1, '#090d18');
+  const g = ctx.createRadialGradient(w / 2, h * 0.45, 40, w / 2, h * 0.45, Math.max(w, h) * 0.8);
+  g.addColorStop(0, '#2c2f3a');
+  g.addColorStop(1, '#14151b');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
 }
@@ -70,41 +84,97 @@ function drawWalls() {
   const esq = (u, v) => iso(-0.5, u, v); // parede esquerda: u ao longo de y
   const dir = (u, v) => iso(u, -0.5, v); // parede direita: u ao longo de x
 
-  // Superfícies com listras de papel de parede.
-  poly([esq(H, 0), esq(-0.5, 0), esq(-0.5, WALL_H), esq(H, WALL_H)], '#b9c3dc');
-  poly([dir(-0.5, 0), dir(W, 0), dir(W, WALL_H), dir(-0.5, WALL_H)], '#d3dbee');
-  for (let i = 0; i < room.h; i++) poly([esq(i - 0.5, 0), esq(i - 0.25, 0), esq(i - 0.25, WALL_H), esq(i - 0.5, WALL_H)], 'rgba(255,255,255,.10)');
-  for (let i = 0; i < room.w; i++) poly([dir(i - 0.5, 0), dir(i - 0.25, 0), dir(i - 0.25, WALL_H), dir(i - 0.5, WALL_H)], 'rgba(255,255,255,.16)');
-  // Rodapé
-  poly([esq(H, 0), esq(-0.5, 0), esq(-0.5, 7), esq(H, 7)], '#7d86a3');
-  poly([dir(-0.5, 0), dir(W, 0), dir(W, 7), dir(-0.5, 7)], '#959eb9');
+  // Superfícies lisas, mais claras em cima e com sombra no canto.
+  const topoY = esq(-0.5, WALL_H).y;
+  const baseY = esq(H, 0).y;
+  const gE = ctx.createLinearGradient(0, topoY, 0, baseY);
+  gE.addColorStop(0, '#a9b0c1');
+  gE.addColorStop(1, '#949bae');
+  const gD = ctx.createLinearGradient(0, topoY, 0, baseY);
+  gD.addColorStop(0, '#bfc5d3');
+  gD.addColorStop(1, '#aab1c2');
+  poly([esq(H, 0), esq(-0.5, 0), esq(-0.5, WALL_H), esq(H, WALL_H)], gE);
+  poly([dir(-0.5, 0), dir(W, 0), dir(W, WALL_H), dir(-0.5, WALL_H)], gD);
+  const canto = dir(-0.5, 0);
+  const sombra = ctx.createLinearGradient(canto.x, 0, canto.x + 60, 0);
+  sombra.addColorStop(0, 'rgba(40, 44, 60, .25)');
+  sombra.addColorStop(1, 'rgba(40, 44, 60, 0)');
+  poly([dir(-0.5, 0), dir(1.5, 0), dir(1.5, WALL_H), dir(-0.5, WALL_H)], sombra);
+  // Rodapé branco
+  poly([esq(H, 0), esq(-0.5, 0), esq(-0.5, 6), esq(H, 6)], '#dfe2ea', 'rgba(60, 64, 80, .25)');
+  poly([dir(-0.5, 0), dir(W, 0), dir(W, 6), dir(-0.5, 6)], '#eceef3', 'rgba(60, 64, 80, .25)');
 
-  // Porta na parede esquerda.
-  const p0 = room.h - 3.4;
-  const p1 = room.h - 2.6;
-  poly([esq(p1 + 0.08, 0), esq(p0 - 0.08, 0), esq(p0 - 0.08, 78), esq(p1 + 0.08, 78)], '#6b4a2e', CONTORNO);
-  poly([esq(p1, 0), esq(p0, 0), esq(p0, 72), esq(p1, 72)], '#1c1426');
+  // Porta na parede esquerda, com batente de madeira.
+  const p0 = room.h - 3.45;
+  const p1 = room.h - 2.55;
+  poly([esq(p1 + 0.1, 0), esq(p0 - 0.1, 0), esq(p0 - 0.1, 84), esq(p1 + 0.1, 84)], '#7a4a26', CONTORNO);
+  const gP = ctx.createLinearGradient(0, esq(p0, 76).y, 0, esq(p0, 0).y);
+  gP.addColorStop(0, '#0d0b10');
+  gP.addColorStop(1, '#2a1d17');
+  poly([esq(p1, 0), esq(p0, 0), esq(p0, 77), esq(p1, 77)], gP);
+  poly([esq(p1, 0), esq(p1 + 0.04, 0), esq(p1 + 0.04, 77), esq(p1, 77)], '#5b361b');
 
-  // Janela na parede direita, com céu e cortinas.
-  const j0 = 3.6;
-  const j1 = 6.4;
-  const sky = ctx.createLinearGradient(0, dir(j0, 92).y, 0, dir(j0, 36).y);
-  sky.addColorStop(0, '#5fb7f2');
-  sky.addColorStop(1, '#bfe6ff');
-  poly([dir(j0 - 0.08, 30), dir(j1 + 0.08, 30), dir(j1 + 0.08, 98), dir(j0 - 0.08, 98)], '#f7f7fb', CONTORNO);
-  poly([dir(j0, 36), dir(j1, 36), dir(j1, 92), dir(j0, 92)], sky);
-  const nuvem = dir(j0 + 0.9, 74);
-  ctx.fillStyle = 'rgba(255,255,255,.9)';
-  for (const [dx, dy, r] of [[0, 0, 7], [8, -3, 8], [16, 1, 6]]) {
+  // Janela na parede direita: moldura branca, céu com árvores.
+  const j0 = 4.1;
+  const j1 = 6.6;
+  const z0 = 36;
+  const z1 = 108;
+  poly([dir(j0 - 0.12, z0 - 6), dir(j1 + 0.12, z0 - 6), dir(j1 + 0.12, z1 + 6), dir(j0 - 0.12, z1 + 6)], '#f4f5f8', 'rgba(60, 64, 80, .4)');
+  const ceu = ctx.createLinearGradient(0, dir(j0, z1).y, 0, dir(j0, z0).y);
+  ceu.addColorStop(0, '#3f9be6');
+  ceu.addColorStop(1, '#a8dcff');
+  poly([dir(j0, z0), dir(j1, z0), dir(j1, z1), dir(j0, z1)], ceu);
+  ctx.save();
+  poly([dir(j0, z0), dir(j1, z0), dir(j1, z1), dir(j0, z1)], null, null);
+  ctx.clip();
+  for (const [u, v, r] of [[j0 + 0.5, 92, 7], [j0 + 0.75, 95, 8], [j0 + 1.0, 92, 6], [j1 - 0.6, 99, 5], [j1 - 0.4, 101, 6]]) {
+    const p = dir(u, v);
+    ctx.fillStyle = 'rgba(255,255,255,.92)';
     ctx.beginPath();
-    ctx.ellipse(nuvem.x + dx, nuvem.y + dy, r * 1.3, r, 0, 0, Math.PI * 2);
+    ctx.ellipse(p.x, p.y, r * 1.4, r, 0, 0, Math.PI * 2);
     ctx.fill();
   }
+  for (let u = j0 - 0.2; u < j1 + 0.3; u += 0.32) {
+    const p = dir(u, z0 + 6 + Math.sin(u * 7) * 3);
+    ctx.fillStyle = u % 0.64 < 0.32 ? '#3e9a3e' : '#2f8233';
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, 14, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
   const meio = (j0 + j1) / 2;
-  poly([dir(meio - 0.04, 36), dir(meio + 0.04, 36), dir(meio + 0.04, 92), dir(meio - 0.04, 92)], '#f7f7fb');
-  poly([dir(j0, 63), dir(j1, 63), dir(j1, 66), dir(j0, 66)], '#f7f7fb');
-  poly([dir(j0 - 0.25, 26), dir(j0 + 0.35, 26), dir(j0 + 0.15, 102), dir(j0 - 0.25, 102)], '#c94f6d', CONTORNO);
-  poly([dir(j1 - 0.35, 26), dir(j1 + 0.25, 26), dir(j1 + 0.25, 102), dir(j1 - 0.15, 102)], '#c94f6d', CONTORNO);
+  poly([dir(meio - 0.05, z0), dir(meio + 0.05, z0), dir(meio + 0.05, z1), dir(meio - 0.05, z1)], '#f4f5f8');
+  poly([dir(j0, 70), dir(j1, 70), dir(j1, 74), dir(j0, 74)], '#f4f5f8');
+  poly([dir(j0 - 0.14, z0 - 9), dir(j1 + 0.14, z0 - 9), dir(j1 + 0.14, z0 - 4), dir(j0 - 0.14, z0 - 4)], '#e2e4ea', 'rgba(60, 64, 80, .4)');
+
+  // Cortinas vermelhas presas num varão.
+  const varao = 118;
+  ctx.strokeStyle = '#2b2b33';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(dir(j0 - 0.75, varao).x, dir(j0 - 0.75, varao).y);
+  ctx.lineTo(dir(j1 + 0.75, varao).x, dir(j1 + 0.75, varao).y);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  for (const u of [j0 - 0.75, j1 + 0.75]) {
+    const p = dir(u, varao);
+    ctx.fillStyle = '#2b2b33';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const cortina = (a, b) => {
+    const dobras = 4;
+    for (let i = 0; i < dobras; i++) {
+      const u0 = a + ((b - a) * i) / dobras;
+      const u1 = a + ((b - a) * (i + 1)) / dobras;
+      const base = 18 + (i % 2) * 3;
+      poly([dir(u0, varao - 2), dir(u1, varao - 2), dir(u1, base), dir(u0, base + 2)], i % 2 ? '#a3141f' : '#c8202c');
+    }
+    poly([dir(a, varao - 2), dir(b, varao - 2), dir(b, 18), dir(a, 18)], null, 'rgba(60, 10, 14, .5)');
+  };
+  cortina(j0 - 0.7, j0 + 0.05);
+  cortina(j1 - 0.05, j1 + 0.7);
 
   // Espessura no topo das paredes e nas pontas.
   const oL = { x: -t * (TILE_W / 2), y: -t * (TILE_H / 2) };
@@ -113,24 +183,68 @@ function drawWalls() {
   const L = esq(H, WALL_H);
   const T = esq(-0.5, WALL_H);
   const R = dir(W, WALL_H);
-  poly([L, T, add(T, oL), add(L, oL)], '#eef1f8', CONTORNO);
-  poly([T, R, add(R, oR), add(T, oR)], '#f6f8fc', CONTORNO);
-  poly([T, add(T, oL), add(add(T, oL), oR), add(T, oR)], '#f6f8fc', CONTORNO);
-  poly([esq(H, -PISO_ESPESSURA), L, add(L, oL), add(esq(H, -PISO_ESPESSURA), oL)], '#9aa4c0', CONTORNO);
-  poly([dir(W, -PISO_ESPESSURA), R, add(R, oR), add(dir(W, -PISO_ESPESSURA), oR)], '#aeb7d0', CONTORNO);
+  poly([L, T, add(T, oL), add(L, oL)], '#eceef3', 'rgba(60, 64, 80, .4)');
+  poly([T, R, add(R, oR), add(T, oR)], '#f6f7fa', 'rgba(60, 64, 80, .4)');
+  poly([T, add(T, oL), add(add(T, oL), oR), add(T, oR)], '#f6f7fa');
+  poly([esq(H, -PISO_ESPESSURA), L, add(L, oL), add(esq(H, -PISO_ESPESSURA), oL)], '#c9cdd8', 'rgba(60, 64, 80, .4)');
+  poly([dir(W, -PISO_ESPESSURA), R, add(R, oR), add(dir(W, -PISO_ESPESSURA), oR)], '#d8dbe4', 'rgba(60, 64, 80, .4)');
 }
 
 function drawFloor() {
   const W = room.w - 0.5;
   const H = room.h - 0.5;
-  // Espessura do piso (lados da frente).
-  poly([iso(-0.5, H), iso(W, H), iso(W, H, -PISO_ESPESSURA), iso(-0.5, H, -PISO_ESPESSURA)], '#a07c52', CONTORNO);
-  poly([iso(W, -0.5), iso(W, H), iso(W, H, -PISO_ESPESSURA), iso(W, -0.5, -PISO_ESPESSURA)], '#86663f', CONTORNO);
+  // Laje do piso (lados da frente), com borda clara em cima.
+  poly([iso(-0.5, H), iso(W, H), iso(W, H, -PISO_ESPESSURA), iso(-0.5, H, -PISO_ESPESSURA)], '#b98a52', CONTORNO);
+  poly([iso(W, -0.5), iso(W, H), iso(W, H, -PISO_ESPESSURA), iso(W, -0.5, -PISO_ESPESSURA)], '#9c7240', CONTORNO);
+  poly([iso(-0.5, H), iso(W, H), iso(W, H, -3), iso(-0.5, H, -3)], '#e3be86');
+  poly([iso(W, -0.5), iso(W, H), iso(W, H, -3), iso(W, -0.5, -3)], '#d2ad76');
+
+  // Superfície com degradê (mais clara perto da janela) e rejunte.
+  const cantoFundo = iso(-0.5, -0.5);
+  const cantoFrente = iso(W, H);
+  const g = ctx.createLinearGradient(cantoFrente.x - 200, cantoFrente.y, cantoFundo.x + 260, cantoFundo.y);
+  g.addColorStop(0, '#d9a866');
+  g.addColorStop(1, '#efc98f');
+  const pisoPts = [iso(-0.5, -0.5), iso(W, -0.5), iso(W, H), iso(-0.5, H)];
+  poly(pisoPts, g);
+  ctx.save();
+  poly(pisoPts, null, null);
+  ctx.clip();
   for (let y = 0; y < room.h; y++) {
     for (let x = 0; x < room.w; x++) {
-      poly([iso(x - 0.5, y - 0.5), iso(x + 0.5, y - 0.5), iso(x + 0.5, y + 0.5), iso(x - 0.5, y + 0.5)], (x + y) % 2 ? '#d7b98a' : '#dcbf91', 'rgba(140, 104, 60, .35)');
+      if ((x * 7 + y * 3) % 5 === 0) poly([iso(x - 0.5, y - 0.5), iso(x + 0.5, y - 0.5), iso(x + 0.5, y + 0.5), iso(x - 0.5, y + 0.5)], 'rgba(255, 255, 255, .05)');
+      if ((x * 3 + y * 5) % 7 === 0) poly([iso(x - 0.5, y - 0.5), iso(x + 0.5, y - 0.5), iso(x + 0.5, y + 0.5), iso(x - 0.5, y + 0.5)], 'rgba(120, 70, 20, .05)');
     }
   }
+  ctx.strokeStyle = 'rgba(150, 100, 50, .45)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 0; i <= room.w; i++) {
+    const a = iso(i - 0.5, -0.5);
+    const b = iso(i - 0.5, H);
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+  }
+  for (let i = 0; i <= room.h; i++) {
+    const a = iso(-0.5, i - 0.5);
+    const b = iso(W, i - 0.5);
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+  }
+  ctx.stroke();
+  // Reflexos da janela no piso brilhante.
+  for (const [x, y, r] of [[5.2, 1.5, 46], [6.3, 2.6, 34], [7.3, 3.4, 26]]) {
+    const p = iso(x, y);
+    brilho(p.x, p.y, r, 'rgba(255, 255, 255, .28)', 0.45);
+  }
+  // Luz da luminária no chão.
+  for (const f of room.furniture) {
+    if (f.type !== 'lamp') continue;
+    const p = iso(f.x, f.y);
+    brilho(p.x, p.y, 120, 'rgba(255, 214, 140, .45)', 0.5);
+  }
+  ctx.restore();
+
   for (const f of room.furniture) if (f.type === 'rug') drawRug(f);
 }
 
@@ -139,20 +253,20 @@ function drawRug(f) {
   const y0 = f.y - 0.45;
   const x1 = f.x + f.w - 0.55;
   const y1 = f.y + f.h - 0.55;
-  poly([iso(x0, y0), iso(x1, y0), iso(x1, y1), iso(x0, y1)], '#3d6fb6', CONTORNO);
-  const m = 0.22;
-  poly([iso(x0 + m, y0 + m), iso(x1 - m, y0 + m), iso(x1 - m, y1 - m), iso(x0 + m, y1 - m)], '#4f86d1', 'rgba(255,255,255,.55)');
-  const n = 0.75;
-  poly([iso(x0 + n, y0 + n), iso(x1 - n, y0 + n), iso(x1 - n, y1 - n), iso(x0 + n, y1 - n)], '#f2c14e', 'rgba(255,255,255,.55)');
+  const ret = (m, cor, borda) => poly([iso(x0 + m, y0 + m), iso(x1 - m, y0 + m), iso(x1 - m, y1 - m), iso(x0 + m, y1 - m)], cor, borda);
+  ret(0, '#2a5298', 'rgba(15, 30, 70, .6)');
+  ret(0.16, null, 'rgba(255,255,255,.75)');
+  ret(0.2, '#2f5ca6');
+  ret(0.62, '#d4a25c', 'rgba(120, 80, 30, .5)');
 }
 
 function drawCursor() {
   if (!hover) return;
   const pts = [iso(hover.x - 0.5, hover.y - 0.5), iso(hover.x + 0.5, hover.y - 0.5), iso(hover.x + 0.5, hover.y + 0.5), iso(hover.x - 0.5, hover.y + 0.5)];
   ctx.lineJoin = 'round';
+  poly(pts, 'rgba(255,255,255,.15)', null);
   ctx.lineWidth = 4;
-  poly(pts, null, null);
-  ctx.strokeStyle = 'rgba(0,0,0,.6)';
+  ctx.strokeStyle = 'rgba(0,0,0,.45)';
   ctx.stroke();
   ctx.lineWidth = 2;
   ctx.strokeStyle = '#fff';
@@ -161,68 +275,107 @@ function drawCursor() {
 }
 
 // ---------- Móveis ----------
+function pernas(x, y, ex, ey, h, cor, grossura = 0.04) {
+  for (const [dx, dy] of [[-ex, -ey], [ex, -ey], [-ex, ey], [ex, ey]]) isoBox(x + dx, y + dy, grossura, grossura, 0, h, cor);
+}
+
 function drawFurniture(f) {
   const { x, y } = f;
   if (f.type === 'sofa') {
+    // Sofá de couro de dois lugares, encostado na parede do fundo.
     const cx = x + (f.w - 1) / 2;
-    const ex = f.w / 2 - 0.08;
-    isoBox(cx, y + 0.05, ex, 0.38, 0, 12, '#b23a48');
-    isoBox(cx, y + 0.05, ex - 0.1, 0.3, 12, 6, '#d9576a');
-    isoBox(cx, y - 0.3, ex, 0.1, 12, 26, '#c44659');
-    isoBox(cx - ex + 0.08, y + 0.05, 0.08, 0.38, 12, 12, '#a3313f');
-    isoBox(cx + ex - 0.08, y + 0.05, 0.08, 0.38, 12, 12, '#a3313f');
+    const ex = f.w / 2 - 0.06;
+    const couro = '#b5212b';
+    pernas(cx, y + 0.02, ex - 0.08, 0.3, 5, '#2a1a12');
+    isoBox(cx, y - 0.26, ex, 0.14, 5, 36, shade(couro, -6));
+    isoBox(cx, y + 0.04, ex, 0.4, 5, 12, shade(couro, -10));
+    for (const lado of [-1, 1]) {
+      const ax = cx + lado * (ex - 0.09);
+      isoBox(ax, y + 0.04, 0.09, 0.4, 5, 24, shade(couro, -4));
+    }
+    const lugar = (ex - 0.2) / 2;
+    for (const lado of [-1, 1]) {
+      const sx = cx + lado * (lugar + 0.01);
+      isoBox(sx, y + 0.08, lugar - 0.02, 0.3, 17, 7, couro);
+      isoBox(sx, y - 0.14, lugar - 0.02, 0.07, 22, 24, shade(couro, 8));
+    }
   } else if (f.type === 'table') {
-    for (const [dx, dy] of [[-0.32, -0.32], [0.32, -0.32], [-0.32, 0.32], [0.32, 0.32]]) isoBox(x + dx, y + dy, 0.04, 0.04, 0, 22, '#6b4423');
-    isoBox(x, y, 0.42, 0.42, 22, 5, '#c98d4f');
-    // Vaso de flores em cima da mesa.
-    isoBox(x, y, 0.07, 0.07, 27, 9, '#f0f3fa');
-    const s = iso(x, y, 40);
-    for (const [dx, dy, c] of [[-4, 0, '#ff6b8b'], [4, -2, '#ffd447'], [0, -6, '#ff9f43']]) {
+    pernas(x, y, 0.34, 0.3, 24, '#5e3317', 0.05);
+    isoBox(x, y, 0.44, 0.4, 24, 6, '#8a4f26');
+    // Vaso de vidro com flores.
+    isoBox(x + 0.05, y - 0.05, 0.06, 0.06, 30, 13, '#dfe9f3', 'rgba(80, 110, 140, .5)');
+    const s = iso(x + 0.05, y - 0.05, 43);
+    ctx.strokeStyle = '#3d8b3d';
+    ctx.lineWidth = 1.2;
+    for (const [dx, dy] of [[-5, -9], [0, -13], [5, -10], [-2, -6]]) {
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.lineTo(s.x + dx, s.y + dy);
+      ctx.stroke();
+    }
+    ctx.lineWidth = 1;
+    for (const [dx, dy, c] of [[-5, -9, '#ff6f8f'], [0, -13, '#ffd2dc'], [5, -10, '#e8384f'], [-2, -6, '#ff9fb4']]) {
       ctx.fillStyle = c;
       ctx.beginPath();
-      ctx.arc(s.x + dx, s.y + dy, 3.5, 0, Math.PI * 2);
+      ctx.arc(s.x + dx, s.y + dy, 3, 0, Math.PI * 2);
       ctx.fill();
     }
   } else if (f.type === 'stool') {
-    isoBox(x, y, 0.05, 0.05, 0, 14, '#6b4423');
-    isoBox(x, y, 0.24, 0.24, 14, 5, '#e3a857');
+    pernas(x, y, 0.17, 0.17, 15, '#5e3317', 0.035);
+    isoBox(x, y, 0.24, 0.24, 15, 5, '#8a4f26');
   } else if (f.type === 'plant') {
-    isoBox(x, y, 0.2, 0.2, 0, 16, '#c8693a');
-    isoBox(x, y, 0.22, 0.22, 16, 3, '#d97b48');
-    const s = iso(x, y, 19);
-    const folhas = [[-10, -10, 9, '#2f8f4e'], [10, -10, 9, '#2f8f4e'], [0, -16, 11, '#38a85b'], [-6, -26, 9, '#41bd67'], [7, -25, 8, '#41bd67'], [0, -34, 7, '#56d17c']];
-    for (const [dx, dy, r, c] of folhas) {
-      ctx.fillStyle = c;
-      ctx.strokeStyle = CONTORNO;
+    // Floreira de madeira com folhas pontudas.
+    isoBox(x, y, 0.24, 0.24, 0, 24, '#9a5b2c');
+    for (const z of [8, 16]) {
+      poly([iso(x - 0.24, y + 0.24, z), iso(x + 0.24, y + 0.24, z)], null, 'rgba(60, 30, 10, .45)');
+      poly([iso(x + 0.24, y + 0.24, z), iso(x + 0.24, y - 0.24, z)], null, 'rgba(60, 30, 10, .45)');
+    }
+    isoBox(x, y, 0.2, 0.2, 22, 2, '#4a2e1a');
+    const s = iso(x, y, 24);
+    const folhas = [];
+    for (let i = 0; i < 11; i++) {
+      const ang = -Math.PI / 2 + (i - 5) * 0.28;
+      folhas.push({ ang, len: 30 - Math.abs(i - 5) * 2.5, cor: i % 2 ? '#2f7d32' : '#3f9b45' });
+    }
+    for (const fo of folhas) {
+      const tx = s.x + Math.cos(fo.ang) * fo.len;
+      const ty = s.y + Math.sin(fo.ang) * fo.len;
+      const nx = -Math.sin(fo.ang) * 6;
+      const ny = Math.cos(fo.ang) * 6;
+      ctx.fillStyle = fo.cor;
       ctx.beginPath();
-      ctx.ellipse(s.x + dx, s.y + dy, r, r * 0.85, 0, 0, Math.PI * 2);
+      ctx.moveTo(s.x, s.y);
+      ctx.quadraticCurveTo((s.x + tx) / 2 + nx, (s.y + ty) / 2 + ny, tx, ty);
+      ctx.quadraticCurveTo((s.x + tx) / 2 - nx, (s.y + ty) / 2 - ny, s.x, s.y);
       ctx.fill();
+      ctx.strokeStyle = 'rgba(20, 60, 20, .5)';
       ctx.stroke();
     }
   } else if (f.type === 'lamp') {
-    const glow = iso(x, y, 64);
-    const g = ctx.createRadialGradient(glow.x, glow.y, 4, glow.x, glow.y, 70);
-    g.addColorStop(0, 'rgba(255, 226, 140, .45)');
-    g.addColorStop(1, 'rgba(255, 226, 140, 0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(glow.x - 70, glow.y - 70, 140, 140);
-    isoBox(x, y, 0.16, 0.16, 0, 4, '#4b4f63');
-    isoBox(x, y, 0.025, 0.025, 4, 52, '#6d7290');
-    const a = iso(x, y, 56);
-    poly([{ x: a.x - 15, y: a.y }, { x: a.x + 15, y: a.y }, { x: a.x + 9, y: a.y - 20 }, { x: a.x - 9, y: a.y - 20 }], '#ffe08a', CONTORNO);
-    poly([{ x: a.x + 3, y: a.y }, { x: a.x + 15, y: a.y }, { x: a.x + 9, y: a.y - 20 }, { x: a.x + 2, y: a.y - 20 }], '#f5c95c');
+    isoBox(x, y, 0.15, 0.15, 0, 4, '#1f1f24');
+    isoBox(x, y, 0.025, 0.025, 4, 54, '#2a2a30');
+    // Cúpula acesa (tronco de pirâmide).
+    const zb = 58;
+    const zt = 80;
+    const b = 0.2;
+    const t = 0.12;
+    const P = (dx, dy, z) => iso(x + dx, y + dy, z);
+    const halo = P(0, 0, 70);
+    brilho(halo.x, halo.y, 60, 'rgba(255, 220, 150, .45)');
+    poly([P(-b, b, zb), P(b, b, zb), P(t, t, zt), P(-t, t, zt)], '#ffe2a3', CONTORNO);
+    poly([P(b, b, zb), P(b, -b, zb), P(t, -t, zt), P(t, t, zt)], '#f6cf7e', CONTORNO);
+    poly([P(-t, -t, zt), P(t, -t, zt), P(t, t, zt), P(-t, t, zt)], '#fff6dc', CONTORNO);
   } else if (f.type === 'shelf') {
-    isoBox(x, y - 0.2, 0.44, 0.22, 0, 70, '#8a5a32');
-    // Livros na frente da estante.
-    const cores = ['#e94560', '#3a7bd5', '#f2c14e', '#2fa36b', '#9b59b6', '#ff8c42'];
-    for (let fileira = 0; fileira < 3; fileira++) {
-      const z0 = 8 + fileira * 21;
-      const y0 = y + 0.02;
-      poly([iso(x - 0.4, y0, z0), iso(x + 0.4, y0, z0), iso(x + 0.4, y0, z0 + 17), iso(x - 0.4, y0, z0 + 17)], '#3d2716');
-      for (let i = 0; i < 6; i++) {
-        const u = x - 0.37 + i * 0.125;
+    isoBox(x, y - 0.22, 0.42, 0.2, 0, 92, '#6f3d1c');
+    const cores = ['#c0392b', '#2e6fb7', '#e2b13c', '#2a8a5a', '#7d4bb3', '#d9692c', '#1f4f8a'];
+    const y0 = y - 0.01;
+    for (let fileira = 0; fileira < 4; fileira++) {
+      const z0 = 6 + fileira * 21.5;
+      poly([iso(x - 0.38, y0, z0), iso(x + 0.38, y0, z0), iso(x + 0.38, y0, z0 + 18), iso(x - 0.38, y0, z0 + 18)], '#3a1f0e');
+      for (let i = 0; i < 7; i++) {
+        const u = x - 0.36 + i * 0.104;
         const alt = 12 + ((i * 7 + fileira * 3) % 5);
-        poly([iso(u, y0, z0), iso(u + 0.1, y0, z0), iso(u + 0.1, y0, z0 + alt), iso(u, y0, z0 + alt)], cores[(i + fileira * 2) % cores.length], CONTORNO);
+        poly([iso(u, y0, z0), iso(u + 0.085, y0, z0), iso(u + 0.085, y0, z0 + alt), iso(u, y0, z0 + alt)], cores[(i + fileira * 2) % cores.length], 'rgba(0,0,0,.35)');
       }
     }
   }
@@ -235,18 +388,19 @@ function drawAvatar(c, sx, sy, o) {
   const passo = o.walk ? Math.sin(t / 85) : 0;
   const danca = o.acao === 'dancar';
   const bob = danca ? Math.abs(Math.sin(t / 160)) * -4 : o.walk ? Math.abs(passo) * -1.5 : 0;
-  const calca = '#34405e';
+  const calca = '#2f4d86';
+  const sapato = '#4a2c1b';
 
   c.save();
   // Sombra
-  c.fillStyle = 'rgba(0,0,0,.22)';
+  c.fillStyle = 'rgba(0,0,0,.25)';
   c.beginPath();
-  c.ellipse(sx, sy, 15, 7, 0, 0, Math.PI * 2);
+  c.ellipse(sx, sy, 14, 6, 0, 0, Math.PI * 2);
   c.fill();
   c.translate(sx, sy + bob);
   if (!o.right) c.scale(-1, 1);
-  c.lineWidth = 1.2;
-  c.strokeStyle = CONTORNO;
+  c.lineWidth = 1.1;
+  c.strokeStyle = 'rgba(30, 20, 20, .55)';
   c.lineJoin = 'round';
 
   const rect = (x, y, w, h, r, cor) => {
@@ -258,10 +412,10 @@ function drawAvatar(c, sx, sy, o) {
   };
   const braco = (ombroX, ang, cor, frente) => {
     c.save();
-    c.translate(ombroX, -40);
+    c.translate(ombroX, -41);
     c.rotate(ang);
-    rect(-3.5, -2, 7, 13, 3, frente ? cor : shade(cor, -30));
-    rect(-3, 9, 6, 9, 3, frente ? PELE : shade(PELE, -25));
+    rect(-3.5, -2, 7, 17, 3.5, frente ? cor : shade(cor, -30));
+    rect(-2.8, 13.5, 5.6, 5.6, 2.8, frente ? PELE : shade(PELE, -25));
     c.restore();
   };
 
@@ -278,22 +432,31 @@ function drawAvatar(c, sx, sy, o) {
 
   // Braço e perna de trás
   braco(-7, angTras, o.shirt, false);
-  rect(-6, -21 - passo * 2, 7, 19, 3, shade(calca, -20));
-  rect(-7, -4 - passo * 2, 9, 5, 2, '#22222c');
-  // Perna da frente
-  rect(0, -21 + passo * 2, 7, 19, 3, calca);
-  rect(-1, -4 + passo * 2, 10, 5, 2, '#2c2c38');
-  // Tronco
-  rect(-9, -44, 18, 26, 6, o.shirt);
-  c.fillStyle = shade(o.shirt, -25);
-  c.fillRect(4, -40, 4, 20);
+  rect(-6, -22 - passo * 2, 7, 20, 3, shade(calca, -22));
+  rect(-7, -4 - passo * 2, 9, 4.5, 2, shade(sapato, -12));
+  // Perna da frente (jeans com costura)
+  rect(0, -22 + passo * 2, 7, 20, 3, calca);
+  c.strokeStyle = 'rgba(255,255,255,.18)';
+  c.beginPath();
+  c.moveTo(3.5, -20 + passo * 2);
+  c.lineTo(3.5, -4 + passo * 2);
+  c.stroke();
+  c.strokeStyle = 'rgba(30, 20, 20, .55)';
+  rect(-1, -4 + passo * 2, 10, 4.5, 2, sapato);
+  // Tronco com sombreado
+  const g = c.createLinearGradient(-9, 0, 9, 0);
+  g.addColorStop(0, shade(o.shirt, 14));
+  g.addColorStop(1, shade(o.shirt, -22));
+  rect(-9, -45, 18, 26, 6, g);
+  c.fillStyle = shade(calca, -10);
+  c.fillRect(-8.5, -21, 17, 2);
   if (o.front) {
-    // Gola
+    // Gola em V
     c.fillStyle = PELE;
     c.beginPath();
-    c.moveTo(-2, -44);
-    c.lineTo(4, -44);
-    c.lineTo(1, -39);
+    c.moveTo(-2, -45);
+    c.lineTo(5, -45);
+    c.lineTo(1.5, -39);
     c.closePath();
     c.fill();
   }
@@ -303,43 +466,78 @@ function drawAvatar(c, sx, sy, o) {
   // Cabeça
   c.fillStyle = PELE;
   c.beginPath();
-  c.ellipse(1, -55, 11, 12, 0, 0, Math.PI * 2);
+  c.ellipse(1, -56, 10.5, 11.5, 0, 0, Math.PI * 2);
   c.fill();
   c.stroke();
   if (o.front) {
-    // Orelha, olhos e boca, virados para o lado em que anda.
-    c.fillStyle = shade(PELE, -20);
+    // Orelha
+    c.fillStyle = shade(PELE, -18);
     c.beginPath();
-    c.ellipse(-8, -54, 2.5, 3.5, 0, 0, Math.PI * 2);
+    c.ellipse(-8, -55, 2.4, 3.4, 0, 0, Math.PI * 2);
     c.fill();
-    c.fillStyle = '#1d1a26';
-    const olhoH = o.blink ? 1 : 4;
-    c.fillRect(2, -57 + (4 - olhoH) / 2, 2.2, olhoH);
-    c.fillRect(7, -57 + (4 - olhoH) / 2, 2.2, olhoH);
-    c.fillStyle = '#c0605a';
-    c.fillRect(4, -49, 4, 1.4);
-    c.fillStyle = 'rgba(255, 120, 120, .35)';
+    // Olhos com brilho (fecham ao piscar)
+    for (const ox of [3.2, 8.2]) {
+      if (o.blink) {
+        c.fillStyle = '#2a1d16';
+        c.fillRect(ox - 1.6, -56, 3.2, 1);
+      } else {
+        c.fillStyle = '#fff';
+        c.beginPath();
+        c.ellipse(ox, -56, 1.6, 2.1, 0, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = '#2a1d16';
+        c.beginPath();
+        c.arc(ox + 0.4, -55.7, 1.15, 0, Math.PI * 2);
+        c.fill();
+      }
+    }
+    // Sobrancelhas
+    c.strokeStyle = o.hair;
+    c.lineWidth = 1.3;
     c.beginPath();
-    c.arc(9, -51, 2, 0, Math.PI * 2);
-    c.fill();
+    c.moveTo(1.6, -60);
+    c.lineTo(4.8, -60.6);
+    c.moveTo(6.8, -60.6);
+    c.lineTo(9.8, -60);
+    c.stroke();
+    // Nariz e sorriso
+    c.strokeStyle = shade(PELE, -45);
+    c.lineWidth = 1;
+    c.beginPath();
+    c.moveTo(7.2, -54);
+    c.lineTo(8.4, -52.4);
+    c.stroke();
+    c.strokeStyle = '#a5524a';
+    c.beginPath();
+    c.arc(5.8, -51.5, 2.2, 0.25, Math.PI - 0.6);
+    c.stroke();
+    c.lineWidth = 1.1;
+    c.strokeStyle = 'rgba(30, 20, 20, .55)';
   }
-  // Cabelo
+  // Cabelo com topete
   c.fillStyle = o.hair;
   c.beginPath();
   if (o.front) {
-    c.moveTo(-10, -52);
-    c.quadraticCurveTo(-12, -70, 2, -68.5);
-    c.quadraticCurveTo(14, -68, 12, -58);
-    c.quadraticCurveTo(6, -62, 0, -60);
-    c.quadraticCurveTo(-4, -57, -6, -50);
+    c.moveTo(-9.8, -52);
+    c.quadraticCurveTo(-13, -70, 0, -69.5);
+    c.quadraticCurveTo(13, -70, 12, -60);
+    c.quadraticCurveTo(10, -64, 4, -63.5);
+    c.quadraticCurveTo(-1, -63, -3, -60);
+    c.quadraticCurveTo(-5, -56, -6, -51);
     c.closePath();
   } else {
-    c.ellipse(1, -57, 11.5, 11, 0, Math.PI * 0.95, Math.PI * 2.05);
-    c.lineTo(11, -50);
-    c.quadraticCurveTo(1, -45, -9, -50);
+    c.ellipse(1, -58, 11, 11, 0, Math.PI * 0.95, Math.PI * 2.05);
+    c.lineTo(11, -51);
+    c.quadraticCurveTo(1, -46, -9, -51);
     c.closePath();
   }
   c.fill();
+  c.stroke();
+  // Brilho no cabelo
+  c.strokeStyle = 'rgba(255,255,255,.22)';
+  c.lineWidth = 1.5;
+  c.beginPath();
+  c.arc(1, -60, 7, Math.PI * 1.15, Math.PI * 1.45);
   c.stroke();
   c.restore();
 }
@@ -359,16 +557,18 @@ function drawPlayer(p, now) {
     blink: (now + (p.fase || 0)) % 3800 < 140,
   });
   // Nome acima da cabeça
-  ctx.font = `bold ${textPx(11)}px ${FONTE}`;
+  ctx.font = `bold ${textPx(12)}px ${FONTE}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  const tw = ctx.measureText(p.name).width + textPx(12);
-  const th = textPx(16);
-  const ny = s.y - 78 - th / 2;
-  ctx.fillStyle = p.id === myId ? 'rgba(46, 125, 50, .92)' : 'rgba(20, 22, 34, .72)';
+  const tw = ctx.measureText(p.name).width + textPx(16);
+  const th = textPx(19);
+  const ny = s.y - 80 - th / 2;
+  ctx.fillStyle = p.id === myId ? '#2e8b3e' : 'rgba(24, 26, 36, .78)';
+  ctx.strokeStyle = 'rgba(0,0,0,.35)';
   ctx.beginPath();
   ctx.roundRect(s.x - tw / 2, ny - th / 2, tw, th, th / 2);
   ctx.fill();
+  ctx.stroke();
   ctx.fillStyle = '#fff';
   ctx.fillText(p.name, s.x, ny + 0.5);
   ctx.textBaseline = 'alphabetic';
