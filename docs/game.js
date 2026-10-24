@@ -1,9 +1,6 @@
-// Jogo: desenha a sala isométrica, os avatares e os balões de chat.
+// Jogo: sala, jogadores, rede, coordenadas e controles.
 const canvas = document.getElementById('tela');
 const ctx = canvas.getContext('2d');
-const TILE_W = 64;
-const TILE_H = 32;
-const WALL_H = 128;
 
 let sala = null; // conexão da rede (rede.js)
 const myId = Math.random().toString(36).slice(2, 10);
@@ -26,21 +23,22 @@ const TIMEOUT_MS = 16000;
 const room = {
   w: 10,
   h: 10,
+  // Mesma arrumação da imagem de referência. dx/dy encostam o móvel na parede.
   furniture: [
-    { type: 'rug', x: 4, y: 3, w: 3, h: 3 }, // decoração, não bloqueia
-    { type: 'sofa', x: 1, y: 0, w: 2 },
-    { type: 'shelf', x: 7, y: 0 },
-    { type: 'table', x: 5, y: 4 },
-    { type: 'stool', x: 4, y: 4 },
-    { type: 'stool', x: 6, y: 4 },
-    { type: 'plant', x: 9, y: 0 },
-    { type: 'plant', x: 0, y: 9 },
-    { type: 'lamp', x: 9, y: 9 },
+    { type: 'tapete', x: 4, y: 3, w: 3, h: 3 }, // decoração, não bloqueia
+    { type: 'sofa', x: 1, y: 0, w: 2, dy: -0.06 },
+    { type: 'estante', x: 8, y: 0, dx: -0.12, dy: -0.25 },
+    { type: 'mesa', x: 5, y: 4 },
+    { type: 'banco', x: 4, y: 4 },
+    { type: 'banco', x: 6, y: 4 },
+    { type: 'planta', x: 9, y: 0 },
+    { type: 'planta', x: 0, y: 9 },
+    { type: 'luminaria', x: 5, y: 8 },
   ],
 };
 const blocked = new Set();
 for (const f of room.furniture) {
-  if (f.type === 'rug') continue;
+  if (f.type === 'tapete') continue;
   for (let i = 0; i < (f.w || 1); i++) blocked.add(`${f.x + i},${f.y}`);
 }
 
@@ -167,9 +165,9 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   try {
     localStorage.setItem('vloc', JSON.stringify({ name, color, hair, senha }));
   } catch {}
-  // Nasce num quadrado livre perto da porta.
-  const x = 2 + Math.floor(Math.random() * 6);
-  const y = 7 + Math.floor(Math.random() * 3);
+  // Nasce num quadrado livre perto da porta (parede esquerda, fileiras 7 e 8).
+  const x = 1 + Math.floor(Math.random() * 3);
+  const y = 7 + Math.floor(Math.random() * 2);
   me = { id: myId, name, color, hair, x, y, path: [], acao: null, drawX: x, drawY: y, front: true, right: false, fase: 0, seen: Infinity };
   players.set(myId, me);
 
@@ -225,14 +223,36 @@ document.getElementById('chat').addEventListener('submit', (e) => {
 });
 
 // ---------- Coordenadas ----------
+// O piso da arte é um quadrilátero (cantos B, R, F, L); cada ladrilho é 1/10 dele.
 function toScreen(x, y) {
-  return { x: origin.x + (x - y) * (TILE_W / 2), y: origin.y + (x + y) * (TILE_H / 2) };
+  const { B, R, F, L } = ARTE.sala.cantos;
+  const u = (x + 0.5) / room.w;
+  const v = (y + 0.5) / room.h;
+  const px = B[0] + u * (R[0] - B[0]) + v * (L[0] - B[0]) + u * v * (F[0] - R[0] - L[0] + B[0]);
+  const py = B[1] + u * (R[1] - B[1]) + v * (L[1] - B[1]) + u * v * (F[1] - R[1] - L[1] + B[1]);
+  return { x: origin.x + px, y: origin.y + py };
+}
+
+function dentro(pt, quad) {
+  let sinal = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i];
+    const b = quad[(i + 1) % 4];
+    const c = Math.sign((b.x - a.x) * (pt.y - a.y) - (b.y - a.y) * (pt.x - a.x));
+    if (c && sinal && c !== sinal) return false;
+    if (c) sinal = c;
+  }
+  return true;
 }
 
 function toTile(sx, sy) {
-  const dx = (sx - origin.x) / (TILE_W / 2);
-  const dy = (sy - origin.y) / (TILE_H / 2);
-  return { x: Math.floor((dx + dy) / 2 + 0.5), y: Math.floor((dy - dx) / 2 + 0.5) };
+  for (let y = 0; y < room.h; y++) {
+    for (let x = 0; x < room.w; x++) {
+      const q = [toScreen(x - 0.5, y - 0.5), toScreen(x + 0.5, y - 0.5), toScreen(x + 0.5, y + 0.5), toScreen(x - 0.5, y + 0.5)];
+      if (dentro({ x: sx, y: sy }, q)) return { x, y };
+    }
+  }
+  return { x: -1, y: -1 };
 }
 
 function inRoom(t) {
@@ -261,18 +281,14 @@ canvas.addEventListener('pointerdown', (e) => {
 function resize() {
   canvas.width = innerWidth * devicePixelRatio;
   canvas.height = innerHeight * devicePixelRatio;
-  const w = room ? room.w : 10;
-  const h = room ? room.h : 10;
-  const roomW = ((w + h) * TILE_W) / 2;
-  const roomH = ((w + h) * TILE_H) / 2 + WALL_H + 30;
-  scale = Math.min(1.3, (innerWidth - 16) / roomW, (innerHeight - 70) / roomH);
+  const barras = 64 + 44; // barra do chat embaixo e contador em cima
+  scale = Math.min(1.4, innerWidth / ARTE.sala.w, (innerHeight - barras) / ARTE.sala.h);
   ctx.setTransform(devicePixelRatio * scale, 0, 0, devicePixelRatio * scale, 0, 0);
-  // Centraliza a sala; (w - h) desloca quando ela não é quadrada.
   origin = {
-    x: innerWidth / scale / 2 + ((h - w) * TILE_W) / 4,
-    y: (innerHeight / scale - 70 / scale - roomH) / 2 + WALL_H + 30,
+    x: (innerWidth / scale - ARTE.sala.w) / 2,
+    y: (innerHeight / scale - 64 / scale - ARTE.sala.h) / 2 + 22 / scale,
   };
-  chatTop = 40 / scale;
+  chatTop = 50 / scale;
 }
 addEventListener('resize', resize);
 
@@ -298,18 +314,18 @@ function desenharPrevia() {
   if (!c || !c.getContext) return;
   const g = c.getContext('2d');
   const dpr = devicePixelRatio || 1;
-  c.width = 112 * dpr;
-  c.height = 136 * dpr;
-  g.setTransform(dpr * 1.6, 0, 0, dpr * 1.6, 0, 0);
-  g.clearRect(0, 0, 70, 85);
-  drawAvatar(g, 34, 78, {
+  c.width = 106 * dpr;
+  c.height = 130 * dpr;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, 106, 130);
+  drawAvatar(g, 52, 125, {
     shirt: document.getElementById('cor').value,
     hair: document.getElementById('cabelo').value,
     front: true,
     right: false,
     acao: 'acenar',
     t: performance.now(),
-  });
+  }, 0.84);
   if (!me) requestAnimationFrame(desenharPrevia);
 }
 

@@ -43,7 +43,8 @@ animam o mesmo trajeto. Quem fecha a página sai da lista na hora (ou em até
 |---|---|
 | `index.html` | Login e ajustes para iPhone (tela cheia, ícone, teclado) |
 | `game.js` | Sala, caminho (BFS), jogadores, ações e zoom para celular |
-| `desenho.js` | Desenho isométrico em Canvas: paredes, piso, móveis, avatares e balões |
+| `desenho.js` | Desenho em Canvas: sala, móveis, avatares (pintados com a cor escolhida) e balões |
+| `arte/`, `arte.js` | Arte gerada no Gemini, recortada e medida por [`ferramentas/`](ferramentas/README.md) |
 | `rede.js` | Conexão com os retransmissores e criptografia pela senha |
 
 Para testar no computador: `python3 -m http.server -d docs 8000` e abra
