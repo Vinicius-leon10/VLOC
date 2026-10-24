@@ -87,6 +87,12 @@
       color: #fff; font-size: 18px; font-weight: 700; text-shadow: 0 1px 2px rgba(0, 0, 0, .6);
     }
     .amostra.clara[aria-pressed="true"]::after { color: #1f2230; text-shadow: none; }
+    .estilos { display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 4px; scrollbar-width: none; }
+    .estilo-btn {
+      flex: none; padding: 7px 11px; border-radius: 9px; border: 2px solid #c9cad1; background: #fff;
+      color: #2c3550; font-size: 13px; font-weight: 700; white-space: nowrap;
+    }
+    .estilo-btn[aria-pressed="true"] { border-color: #2f8fe0; background: #e6f2fd; }
     .botao-verde {
       margin-top: 4px; height: 60px; display: flex; align-items: center; justify-content: center; gap: 16px;
       border: 3px solid #1f5e12; border-radius: 14px; color: #fff; font-size: 21px; font-weight: 700;
@@ -153,6 +159,11 @@
           <div class="rotulo"><svg viewBox="0 0 24 24"><path d="M12 2C7 2 4 5.5 4 10c0 3 1 5 1 8h3c0-2-.5-3.5-.5-5.5C7.5 9 9.5 7 12 7s4.5 2 4.5 5.5c0 2-.5 3.5-.5 5.5h3c0-3 1-5 1-8 0-4.5-3-8-8-8z"/></svg>Cabelo</div>
           <div class="amostras" data-alvo="cabelo"></div>
         </div>
+        <div id="grupo-estilo" hidden>
+          <div class="rotulo"><svg viewBox="0 0 24 24"><path d="M12 2C7 2 4 5.5 4 10c0 3 1 5 1 8h3c0-2-.5-3.5-.5-5.5C7.5 9 9.5 7 12 7s4.5 2 4.5 5.5c0 2-.5 3.5-.5 5.5h3c0-3 1-5 1-8 0-4.5-3-8-8-8z"/></svg>Estilo</div>
+          <div class="estilos" id="estilos"></div>
+        </div>
+        <input type="hidden" id="estilo" value="padrao">
         <input type="hidden" id="cor" value="#d3283c">
         <input type="hidden" id="cabelo" value="#3a2216">
         <button class="botao-verde"><svg viewBox="0 0 24 24"><path d="M13 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6v-2.5h5.5v-13H13zM9.5 7.5l5 4.5-5 4.5V13.5H3v-3h6.5z"/></svg><span class="sep"></span>Entrar no hotel</button>
@@ -215,6 +226,33 @@
   <script src="arte.js"></script>
   <script src="desenho.js"></script>
   <script src="game.js"></script>
-  <script>marcarAmostras();</script>
+  <script>
+    marcarAmostras();
+    // Botões de estilo de cabelo (só aparecem quando há mais de um estilo montado).
+    const NOMES_ESTILO = {
+      padrao: 'Padrão', cabelo_curto_despenteado: 'Despenteado', cabelo_pompadour: 'Pompadour',
+      cabelo_encaracolado: 'Encaracolado', cabelo_medio_ondulado: 'Médio ondulado', cabelo_classico: 'Clássico',
+      cabelo_feminino_longo_ondulado: 'Longo ondulado', cabelo_feminino_rabo_cavalo: 'Rabo de cavalo',
+      cabelo_feminino_bob: 'Bob', cabelo_feminino_coque: 'Coque', cabelo_feminino_tranca: 'Trança',
+    };
+    const estilos = Object.keys(ARTE.avatar.estilos);
+    if (estilos.length > 1) {
+      document.getElementById('grupo-estilo').hidden = false;
+      const campo = document.getElementById('estilo');
+      const lista = document.getElementById('estilos');
+      for (const id of estilos) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'estilo-btn';
+        b.textContent = NOMES_ESTILO[id] || id;
+        b.setAttribute('aria-pressed', campo.value === id);
+        b.addEventListener('click', () => {
+          campo.value = id;
+          lista.querySelectorAll('.estilo-btn').forEach((x) => x.setAttribute('aria-pressed', x === b));
+        });
+        lista.appendChild(b);
+      }
+    }
+  </script>
 </body>
 </html>

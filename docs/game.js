@@ -5,7 +5,7 @@ const ctx = canvas.getContext('2d');
 let sala = null; // conexão da rede (rede.js)
 const myId = Math.random().toString(36).slice(2, 10);
 let me = null;
-const players = new Map(); // id -> { name, color, hair, x, y, path, acao, drawX, drawY, seen }
+const players = new Map(); // id -> { name, color, hair, estilo, x, y, path, acao, drawX, drawY, seen }
 let origin = { x: 0, y: 0 };
 let scale = 1;
 let hover = null;
@@ -89,7 +89,7 @@ setInterval(() => {
 
 // ---------- Rede ----------
 function myState() {
-  return { name: me.name, color: me.color, hair: me.hair, x: me.x, y: me.y, path: me.path, acao: me.acao };
+  return { name: me.name, color: me.color, hair: me.hair, estilo: me.estilo, x: me.x, y: me.y, path: me.path, acao: me.acao };
 }
 
 // Dados vindos de outros jogadores: valida antes de usar.
@@ -106,6 +106,7 @@ function upsertPlayer(id, d) {
     name: String(d.name || 'Visitante').slice(0, 16),
     color: /^#[0-9a-f]{6}$/i.test(d.color) ? d.color : '#888888',
     hair: /^#[0-9a-f]{6}$/i.test(d.hair) ? d.hair : '#4a2f1d',
+    estilo: estiloValido(d.estilo),
     ...pos,
     path,
     seen: Date.now(),
@@ -161,14 +162,15 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   const name = document.getElementById('nome').value.trim().slice(0, 16) || 'Visitante';
   const color = document.getElementById('cor').value;
   const hair = document.getElementById('cabelo').value;
+  const estilo = estiloValido(document.getElementById('estilo').value);
   const senha = document.getElementById('senha').value;
   try {
-    localStorage.setItem('vloc', JSON.stringify({ name, color, hair, senha }));
+    localStorage.setItem('vloc', JSON.stringify({ name, color, hair, estilo, senha }));
   } catch {}
   // Nasce num quadrado livre perto da porta (parede esquerda, fileiras 7 e 8).
   const x = 1 + Math.floor(Math.random() * 3);
   const y = 7 + Math.floor(Math.random() * 2);
-  me = { id: myId, name, color, hair, x, y, path: [], acao: null, drawX: x, drawY: y, front: true, right: false, fase: 0, seen: Infinity };
+  me = { id: myId, name, color, hair, estilo, x, y, path: [], acao: null, drawX: x, drawY: y, front: true, right: false, fase: 0, seen: Infinity };
   players.set(myId, me);
 
   document.getElementById('login').style.display = 'none';
@@ -202,6 +204,7 @@ try {
     document.getElementById('nome').value = salvo.name;
     document.getElementById('cor').value = salvo.color;
     if (salvo.hair) document.getElementById('cabelo').value = salvo.hair;
+    if (salvo.estilo) document.getElementById('estilo').value = estiloValido(salvo.estilo);
     document.getElementById('senha').value = salvo.senha;
   }
 } catch {}
@@ -319,6 +322,7 @@ function desenharPrevia() {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, 106, 130);
   drawAvatar(g, 52, 125, {
+    estilo: document.getElementById('estilo').value,
     shirt: document.getElementById('cor').value,
     hair: document.getElementById('cabelo').value,
     front: true,

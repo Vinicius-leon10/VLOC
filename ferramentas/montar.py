@@ -81,25 +81,8 @@ for nome, arq, idx, esp, largura, (ex, ey) in MOVEIS:
     img.save(f'{SAIDA}/{nome}.png', optimize=True)
     meta[nome] = {'w': largura, 'h': round(img.height / DENS, 1), 'ax': round(ax / px_por_mundo, 1), 'ay': round(ay / px_por_mundo, 1)}
 
-# ---------- Personagem ----------
-rgba = remover_magenta(f'{ENTRADA}/personagem.jpg')
-caixas = componentes(rgba)
-assert len(caixas) == 14, len(caixas)
+# ---------- Personagem (uma folha de 14 poses por estilo de cabelo) ----------
 ALTURA = 230  # px do sprite (desenhado com ~145 px de altura no mundo)
-quadros = []
-for (x, y, w, h) in caixas:
-    m = 20
-    c = rgba[max(0, y - m):y + h + m, max(0, x - m):x + w + m].copy()
-    # Mantém só o personagem (tira borrões soltos da imagem gerada).
-    a = (c[..., 3] > 20).astype(np.uint8)
-    n, lab, st, _ = cv2.connectedComponentsWithStats(cv2.dilate(a, np.ones((9, 9), np.uint8)))
-    maior = 1 + np.argmax(st[1:, 4])
-    c[..., 3][lab != maior] = 0
-    # Sombra translúcida só pode existir na altura dos pés.
-    yy = np.arange(c.shape[0])[:, None] / c.shape[0]
-    c[..., 3][(c[..., 3] < 200) & (yy < 0.85)] = 0
-    quadros.append(c)
-esc = ALTURA / max(q.shape[0] for q in quadros)
 
 def camadas(c):
     rgb = c[..., :3].astype(np.float32) / 255
@@ -129,30 +112,62 @@ def camadas(c):
         return out.astype(np.uint8)
     return camada(camisa, 0.88), camada(cabelo, 0.82)
 
-atlas_w = 0
-info = []
-redim = []
-for c in quadros:
-    img = Image.fromarray(c)
-    img = img.resize((round(img.width * esc), round(img.height * esc)), Image.LANCZOS)
-    arr = np.asarray(img)
-    cam, cab = camadas(arr)
-    redim.append((arr, cam, cab))
-    a = arr[..., 3] > 200
-    fy = np.where(a.any(1))[0].max()
-    xs = np.where(a[max(0, fy - 25):fy + 1].any(0))[0]
-    info.append({'x': atlas_w, 'w': img.width, 'h': img.height, 'ax': round((xs.min() + xs.max()) / 2), 'ay': int(fy) - 4})
-    atlas_w += img.width + 2
-atlas_h = max(i['h'] for i in info)
-for k, nome in enumerate(['avatar', 'avatar-camisa', 'avatar-cabelo']):
-    at = Image.new('RGBA', (atlas_w, atlas_h), (0, 0, 0, 0))
-    for (arr, cam, cab), i in zip(redim, info):
-        at.paste(Image.fromarray([arr, cam, cab][k]), (i['x'], 0))
-    at.save(f'{SAIDA}/{nome}.png', optimize=True)
-meta['avatar'] = {'quadros': info, 'altura': 145, 'px': ALTURA,
+def montar_personagem(arquivo, prefixo):
+    rgba = remover_magenta(arquivo)
+    caixas = componentes(rgba)
+    if len(caixas) != 14:
+        print(f'AVISO: {arquivo} tem {len(caixas)} poses em vez de 14; estilo ignorado.')
+        return None
+    quadros = []
+    for (x, y, w, h) in caixas:
+        m = 20
+        c = rgba[max(0, y - m):y + h + m, max(0, x - m):x + w + m].copy()
+        # Mantém só o personagem (tira borrões soltos da imagem gerada).
+        a = (c[..., 3] > 20).astype(np.uint8)
+        n, lab, st, _ = cv2.connectedComponentsWithStats(cv2.dilate(a, np.ones((9, 9), np.uint8)))
+        maior = 1 + np.argmax(st[1:, 4])
+        c[..., 3][lab != maior] = 0
+        # Sombra translúcida só pode existir na altura dos pés.
+        yy = np.arange(c.shape[0])[:, None] / c.shape[0]
+        c[..., 3][(c[..., 3] < 200) & (yy < 0.85)] = 0
+        quadros.append(c)
+    esc = ALTURA / max(q.shape[0] for q in quadros)
+    atlas_w = 0
+    info = []
+    redim = []
+    for c in quadros:
+        img = Image.fromarray(c)
+        img = img.resize((round(img.width * esc), round(img.height * esc)), Image.LANCZOS)
+        arr = np.asarray(img)
+        cam, cab = camadas(arr)
+        redim.append((arr, cam, cab))
+        a = arr[..., 3] > 200
+        fy = np.where(a.any(1))[0].max()
+        xs = np.where(a[max(0, fy - 25):fy + 1].any(0))[0]
+        info.append({'x': atlas_w, 'w': img.width, 'h': img.height, 'ax': round((xs.min() + xs.max()) / 2), 'ay': int(fy) - 4})
+        atlas_w += img.width + 2
+    atlas_h = max(i['h'] for i in info)
+    for k, nome in enumerate([prefixo, f'{prefixo}-camisa', f'{prefixo}-cabelo']):
+        at = Image.new('RGBA', (atlas_w, atlas_h), (0, 0, 0, 0))
+        for (arr, cam, cab), i in zip(redim, info):
+            at.paste(Image.fromarray([arr, cam, cab][k]), (i['x'], 0))
+        at.save(f'{SAIDA}/{nome}.png', optimize=True)
+    return info
+
+# Folha padrão (personagem.jpg) e estilos extras (cabelo_*.png/jpg) gerados pelo gerar_cabelos.py.
+meta['avatar'] = {'altura': 145, 'px': ALTURA,
                   # orientação nativa dos quadros: de frente e de costas olham para a direita
                   'parado': 0, 'paradoCostas': 2, 'andar': [3, 4, 5, 6], 'andarCostas': [7, 8, 9, 10],
-                  'acenar': [11], 'dancar': [12, 13]}
+                  'acenar': [11], 'dancar': [12, 13], 'estilos': {}}
+import glob, os
+folhas = [(f'{ENTRADA}/personagem.jpg', 'padrao', 'avatar')]
+for arq in sorted(glob.glob(f'{ENTRADA}/cabelo_*.*')):
+    nome = os.path.splitext(os.path.basename(arq))[0]
+    folhas.append((arq, nome, f'avatar-{nome}'))
+for arq, nome, prefixo in folhas:
+    info = montar_personagem(arq, prefixo)
+    if info:
+        meta['avatar']['estilos'][nome] = {'arquivo': prefixo, 'quadros': info}
 
 with open(f'{SAIDA}/../arte.js', 'w') as fo:
     fo.write('// Medidas da arte (gerado por scripts de montagem; não editar à mão).\n')

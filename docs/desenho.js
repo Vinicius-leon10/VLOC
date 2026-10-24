@@ -6,11 +6,27 @@ const FUNDO = '#1f2237'; // mesma cor das bordas de arte/sala.jpg
 
 // ---------- Imagens ----------
 const IMG = {};
-for (const nome of ['sala', 'sofa', 'estante', 'mesa', 'banco', 'planta', 'luminaria', 'avatar', 'avatar-camisa', 'avatar-cabelo']) {
+for (const nome of ['sala', 'sofa', 'estante', 'mesa', 'banco', 'planta', 'luminaria']) {
   IMG[nome] = new Image();
   IMG[nome].src = `arte/${nome}.${nome === 'sala' ? 'jpg' : 'png'}`;
 }
 const pronta = (nome) => IMG[nome].complete && IMG[nome].naturalWidth > 0;
+
+// Imagens de cada estilo de cabelo, baixadas só quando alguém usa o estilo.
+function estiloValido(estilo) {
+  return Object.hasOwn(ARTE.avatar.estilos, estilo) ? estilo : 'padrao';
+}
+
+function imagensEstilo(estilo) {
+  const base = ARTE.avatar.estilos[estilo].arquivo;
+  for (const nome of [base, `${base}-camisa`, `${base}-cabelo`]) {
+    if (!IMG[nome]) {
+      IMG[nome] = new Image();
+      IMG[nome].src = `arte/${nome}.png`;
+    }
+  }
+  return [base, `${base}-camisa`, `${base}-cabelo`];
+}
 
 // ---------- Utilitários ----------
 function poly(pts, fill, stroke, c = ctx) {
@@ -116,17 +132,18 @@ function drawFurniture(f) {
 // Cada combinação de quadro + cores vira um canvas pintado uma vez e reaproveitado.
 const avatarCache = new Map();
 
-function quadroPintado(i, camisa, cabelo) {
-  const chave = `${i}|${camisa}|${cabelo}`;
+function quadroPintado(estilo, i, camisa, cabelo) {
+  const chave = `${estilo}|${i}|${camisa}|${cabelo}`;
   if (avatarCache.has(chave)) return avatarCache.get(chave);
-  if (!pronta('avatar') || !pronta('avatar-camisa') || !pronta('avatar-cabelo')) return null;
-  const q = ARTE.avatar.quadros[i];
+  const [base, camadaCamisa, camadaCabelo] = imagensEstilo(estilo);
+  if (!pronta(base) || !pronta(camadaCamisa) || !pronta(camadaCabelo)) return null;
+  const q = ARTE.avatar.estilos[estilo].quadros[i];
   const out = document.createElement('canvas');
   out.width = q.w;
   out.height = q.h;
   const o = out.getContext('2d');
-  o.drawImage(IMG.avatar, q.x, 0, q.w, q.h, 0, 0, q.w, q.h);
-  for (const [camada, cor] of [['avatar-camisa', camisa], ['avatar-cabelo', cabelo]]) {
+  o.drawImage(IMG[base], q.x, 0, q.w, q.h, 0, 0, q.w, q.h);
+  for (const [camada, cor] of [[camadaCamisa, camisa], [camadaCabelo, cabelo]]) {
     const t = document.createElement('canvas');
     t.width = q.w;
     t.height = q.h;
@@ -144,7 +161,7 @@ function quadroPintado(i, camisa, cabelo) {
   return out;
 }
 
-// Desenha um avatar com os pés em (sx, sy). o = { shirt, hair, front, right, walk, acao, t }
+// Desenha um avatar com os pés em (sx, sy). o = { estilo, shirt, hair, front, right, walk, acao, t }
 // Os quadros originais olham para a direita; para a esquerda, espelha.
 function drawAvatar(c, sx, sy, o, tamanho = 1) {
   const A = ARTE.avatar;
@@ -154,9 +171,10 @@ function drawAvatar(c, sx, sy, o, tamanho = 1) {
   else if (o.acao === 'acenar') i = A.acenar[0];
   else if (o.walk) i = (o.front ? A.andar : A.andarCostas)[Math.floor(t / 140) % 4];
   else i = o.front ? A.parado : A.paradoCostas;
-  const img = quadroPintado(i, o.shirt, o.hair);
+  const estilo = estiloValido(o.estilo);
+  const img = quadroPintado(estilo, i, o.shirt, o.hair);
   if (!img) return;
-  const q = A.quadros[i];
+  const q = A.estilos[estilo].quadros[i];
   const k = (A.altura / A.px) * tamanho;
   c.save();
   c.translate(sx, sy);
@@ -170,6 +188,7 @@ function drawPlayer(p, now) {
   const walking = Math.abs(p.drawX - p.x) + Math.abs(p.drawY - p.y) > 0.03 || p.path.length > 0;
   if (p.acao === 'acenar' && now > p.acaoAte) p.acao = null;
   drawAvatar(ctx, s.x, s.y, {
+    estilo: p.estilo,
     shirt: p.color,
     hair: p.hair || '#3a2216',
     front: p.front !== false,
